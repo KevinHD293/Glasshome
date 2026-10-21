@@ -13,6 +13,7 @@ import android.graphics.RectF;
 import android.graphics.Shader;
 import android.graphics.Typeface;
 import android.graphics.drawable.Drawable;
+import android.text.TextPaint;
 import android.text.TextUtils;
 import android.view.KeyEvent;
 import android.view.View;
@@ -69,7 +70,7 @@ final class HomeView extends View {
     private final Spring hr = new Spring(), scroll = new Spring(), pop = new Spring(), gx = new Spring();
 
     private final Paint p = new Paint(Paint.ANTI_ALIAS_FLAG);
-    private final Paint text = new Paint(Paint.ANTI_ALIAS_FLAG);
+    private final TextPaint text = new TextPaint(Paint.ANTI_ALIAS_FLAG);
     private final Paint glowPaint = new Paint(Paint.ANTI_ALIAS_FLAG);
     private final Paint wallPaint = new Paint(Paint.FILTER_BITMAP_FLAG);
     private final Path path = new Path();
