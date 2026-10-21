@@ -41,6 +41,7 @@ final class HomeView extends View {
     private static final int COLS = 4, DOCK_MAX = 4;
     private static final float POP = 1.07f;
     private static final float HELD = 1.14f;
+    private static final int M_MOVE = 0, M_DEL = 1, M_NOTE = 2, M_CLOSE = 3;   // app menu rows
     private static final int P_ARR = 0, P_IN = 1, P_WIFI = 2, P_SET = 3, NP = 4;   // top-bar pills
 
     private static final class Spring {
@@ -65,6 +66,11 @@ final class HomeView extends View {
     private boolean centerDown = false, longHandled = false;
     private boolean arrange = false, tempArrange = false;   // arrange mode / entered by long-press
     private AppEntry held = null;                           // app currently picked up
+    private boolean menuOpen = false;
+    private int menuIdx = 0;
+    private AppEntry menuApp = null;
+    private final ArrayList<String> menuLabels = new ArrayList<>();
+    private final ArrayList<Integer> menuIds = new ArrayList<>();
     private ArrayList<AppEntry> snapDock = new ArrayList<>(), snapGrid = new ArrayList<>();
 
     private boolean ddOpen = false;
@@ -160,7 +166,7 @@ final class HomeView extends View {
             grid.clear();
             grid.addAll(ordered);
         }
-        held = null; arrange = false; tempArrange = false; pillText[P_ARR] = "Sắp xếp";
+        menuOpen = false; held = null; arrange = false; tempArrange = false; pillText[P_ARR] = "Sắp xếp";
 
         // restore focus
         zone = ZD; dockIdx = 0; gridIdx = 0;
@@ -196,6 +202,7 @@ final class HomeView extends View {
 
     void goHome() {
         ddOpen = false;
+        menuOpen = false;
         if (held != null) cancelMove();
         if (arrange) exitArrange();
         if (zone != ZD) { zone = ZD; fixZone(); }
@@ -304,6 +311,7 @@ final class HomeView extends View {
     // ------------------------------------------------------------------ keys
 
     boolean onNavDown(int k, KeyEvent e) {
+        if (menuOpen) return menuDown(k, e);
         if (ddOpen) return ddDown(k, e);
         switch (k) {
             case KeyEvent.KEYCODE_DPAD_LEFT: move(-1, 0); return true;
@@ -393,6 +401,7 @@ final class HomeView extends View {
     }
 
     private void activate() {
+        if (menuOpen) { menuSelect(); return; }
         if (ddOpen) {
             ddOpen = false;
             act.sfx.open();
@@ -413,14 +422,115 @@ final class HomeView extends View {
     }
 
 
+    // ------------------------------------------------------------ app menu
+
+    /** Holding OK on a dock or grid tile opens a small menu: move / uninstall / close. */
+    private void openMenu() {
+        AppEntry cur = null;
+        if (zone == ZD && !dock.isEmpty()) cur = dock.get(dockIdx);
+        else if (zone == ZG && !grid.isEmpty()) cur = grid.get(gridIdx);
+        if (cur == null) return;
+        menuApp = cur;
+        menuLabels.clear();
+        menuIds.clear();
+        menuLabels.add("Di chuyển");
+        menuIds.add(M_MOVE);
+        if (act.canUninstall(cur)) { menuLabels.add("Gỡ cài đặt"); menuIds.add(M_DEL); }
+        else { menuLabels.add("App hệ thống, không gỡ được"); menuIds.add(M_NOTE); }
+        menuLabels.add("Đóng");
+        menuIds.add(M_CLOSE);
+        menuIdx = 0;
+        menuOpen = true;
+        act.sfx.pick();
+        invalidate();
+    }
+
+    private boolean menuDown(int k, KeyEvent e) {
+        switch (k) {
+            case KeyEvent.KEYCODE_DPAD_UP: stepMenu(-1); break;
+            case KeyEvent.KEYCODE_DPAD_DOWN: stepMenu(1); break;
+            case KeyEvent.KEYCODE_DPAD_LEFT:
+            case KeyEvent.KEYCODE_DPAD_RIGHT:
+            case KeyEvent.KEYCODE_BACK: menuOpen = false; break;
+            case KeyEvent.KEYCODE_DPAD_CENTER:
+            case KeyEvent.KEYCODE_ENTER:
+            case KeyEvent.KEYCODE_NUMPAD_ENTER:
+                if (e.getRepeatCount() == 0) { centerDown = true; longHandled = false; }
+                break;
+        }
+        invalidate();
+        return true;
+    }
+
+    private void stepMenu(int dir) {
+        int n = menuIds.size();
+        int i = menuIdx;
+        do { i += dir; } while (i >= 0 && i < n && menuIds.get(i) == M_NOTE);
+        if (i >= 0 && i < n) { menuIdx = i; act.sfx.move(); }
+    }
+
+    private void menuSelect() {
+        int id = menuIds.get(menuIdx);
+        if (id == M_NOTE) return;
+        menuOpen = false;
+        if (id == M_MOVE) {
+            if (!arrange) { arrange = true; tempArrange = true; setArrangeLabel(); }
+            pickUp();
+        } else if (id == M_DEL) {
+            act.sfx.open();
+            act.uninstall(menuApp);
+        }
+        invalidate();
+    }
+
+    private void drawMenu(Canvas c) {
+        if (!menuOpen || menuApp == null) return;
+        p.setStyle(Paint.Style.FILL);
+        p.setColor(0xAA000000);
+        c.drawRect(0, 0, W, H, p);
+
+        float w = 440 * dp, rowH3 = 56 * dp, titleH = 68 * dp;
+        float h = titleH + menuIds.size() * rowH3 + 16 * dp;
+        float x = (W - w) / 2f, y = (H - h) / 2f;
+        rf.set(x, y, x + w, y + h);
+        p.setColor(0xF2222226);
+        c.drawRoundRect(rf, 28 * dp, 28 * dp, p);
+        p.setStyle(Paint.Style.STROKE);
+        p.setStrokeWidth(1.5f * dp);
+        p.setColor(0x50FFFFFF);
+        c.drawRoundRect(rf, 28 * dp, 28 * dp, p);
+        p.setStyle(Paint.Style.FILL);
+
+        text.setTextAlign(Paint.Align.LEFT);
+        text.setTypeface(light);
+        text.setTextSize(26 * dp);
+        text.setColor(Color.WHITE);
+        CharSequence t = TextUtils.ellipsize(menuApp.label, text, w - 56 * dp, TextUtils.TruncateAt.END);
+        c.drawText(t, 0, t.length(), x + 28 * dp, y + 44 * dp, text);
+
+        text.setTypeface(regular);
+        text.setTextSize(22 * dp);
+        Paint.FontMetrics fm = text.getFontMetrics();
+        for (int i = 0; i < menuIds.size(); i++) {
+            float top = y + titleH + i * rowH3;
+            int id = menuIds.get(i);
+            if (i == menuIdx && id != M_NOTE) {
+                tmp.set(x + 10 * dp, top + 4 * dp, x + w - 10 * dp, top + rowH3 - 4 * dp);
+                p.setColor(0x55FFFFFF);
+                c.drawRoundRect(tmp, 18 * dp, 18 * dp, p);
+            }
+            text.setColor(id == M_NOTE ? 0x88FFFFFF : id == M_DEL ? 0xFFFF6B6B : Color.WHITE);
+            c.drawText(menuLabels.get(i), x + 28 * dp, top + rowH3 / 2f - (fm.ascent + fm.descent) / 2f, text);
+        }
+    }
+
     // ------------------------------------------------------- arrange / move
 
     /** Holding OK on a dock or grid tile starts arrange mode and picks the app up. */
     private void longPress() {
-        if (ddOpen || held != null) return;
+        if (ddOpen || menuOpen || held != null) return;
         if (zone != ZD && zone != ZG) return;
-        if (!arrange) { arrange = true; tempArrange = true; setArrangeLabel(); }
-        pickUp();
+        openMenu();
     }
 
     private void setArrangeLabel() {
@@ -620,6 +730,7 @@ final class HomeView extends View {
 
         c.restore();
         drawHint(c);
+        drawMenu(c);
         if (anim) postInvalidateOnAnimation(); else lastNs = 0;
     }
 

@@ -9,6 +9,7 @@ import android.content.Intent;
 import android.content.IntentFilter;
 import android.content.SharedPreferences;
 import android.content.pm.ActivityInfo;
+import android.content.pm.ApplicationInfo;
 import android.content.pm.PackageManager;
 import android.content.pm.ResolveInfo;
 import android.graphics.Color;
@@ -19,6 +20,7 @@ import android.media.tv.TvInputInfo;
 import android.media.tv.TvInputManager;
 import android.net.ConnectivityManager;
 import android.net.Network;
+import android.net.Uri;
 import android.net.NetworkCapabilities;
 import android.net.wifi.WifiInfo;
 import android.net.wifi.WifiManager;
@@ -218,6 +220,27 @@ public class MainActivity extends Activity {
             startActivity(i);
         } catch (Exception ex) {
             Toast.makeText(this, "Không mở được " + e.label, Toast.LENGTH_SHORT).show();
+        }
+    }
+
+    /** Only apps the user installed can be removed; system apps cannot. */
+    boolean canUninstall(AppEntry e) {
+        try {
+            ApplicationInfo ai = getPackageManager().getApplicationInfo(e.cn.getPackageName(), 0);
+            return (ai.flags & ApplicationInfo.FLAG_SYSTEM) == 0;
+        } catch (Exception ex) {
+            return false;
+        }
+    }
+
+    /** Opens Android's own uninstall confirmation dialog. */
+    void uninstall(AppEntry e) {
+        try {
+            Intent i = new Intent(Intent.ACTION_DELETE, Uri.parse("package:" + e.cn.getPackageName()));
+            i.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK);
+            startActivity(i);
+        } catch (Exception ex) {
+            Toast.makeText(this, "Không mở được hộp thoại gỡ cài đặt", Toast.LENGTH_SHORT).show();
         }
     }
 
