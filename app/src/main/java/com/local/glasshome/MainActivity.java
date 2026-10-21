@@ -70,17 +70,17 @@ public class MainActivity extends Activity {
         view = new HomeView(this);
         setContentView(view);
         requestLocationOnce();
-    }
-
-    @Override
-    protected void onStart() {
-        super.onStart();
         IntentFilter pf = new IntentFilter();
         pf.addAction(Intent.ACTION_PACKAGE_ADDED);
         pf.addAction(Intent.ACTION_PACKAGE_REMOVED);
         pf.addAction(Intent.ACTION_PACKAGE_REPLACED);
         pf.addDataScheme("package");
         registerReceiver(pkgReceiver, pf);
+    }
+
+    @Override
+    protected void onStart() {
+        super.onStart();
         IntentFilter tf = new IntentFilter();
         tf.addAction(Intent.ACTION_TIME_TICK);
         tf.addAction(Intent.ACTION_TIME_CHANGED);
@@ -91,14 +91,13 @@ public class MainActivity extends Activity {
     @Override
     protected void onStop() {
         super.onStop();
-        try { unregisterReceiver(pkgReceiver); } catch (Exception ignored) { }
         try { unregisterReceiver(timeReceiver); } catch (Exception ignored) { }
     }
 
     @Override
     protected void onResume() {
         super.onResume();
-        if (dirty) loadApps();
+        if (dirty) loadApps(); else checkForChanges();
         view.refreshWifi();
         view.tick();
     }
@@ -106,6 +105,7 @@ public class MainActivity extends Activity {
     @Override
     protected void onDestroy() {
         super.onDestroy();
+        try { unregisterReceiver(pkgReceiver); } catch (Exception ignored) { }
         if (sfx != null) sfx.release();
     }
 
@@ -144,10 +144,39 @@ public class MainActivity extends Activity {
         final String last = prefs.getString(K_LAST, null);
         new Thread(() -> {
             final List<AppEntry> list = queryApps();
+            final String sig = signature();
             runOnUiThread(() -> {
-                if (!isDestroyed()) view.setApps(list, dock, gridOrder, last);
+                if (isDestroyed()) return;
+                lastSig = sig;
+                view.setApps(list, dock, gridOrder, last);
             });
         }).start();
+    }
+
+    private String lastSig = "";
+
+    /** Safety net: apps installed or removed while Glass Home was in the background trigger a reload. */
+    private void checkForChanges() {
+        new Thread(() -> {
+            final String sig = signature();
+            runOnUiThread(() -> {
+                if (!isDestroyed() && !sig.equals(lastSig)) loadApps();
+            });
+        }).start();
+    }
+
+    private String signature() {
+        PackageManager pm = getPackageManager();
+        ArrayList<String> keys = new ArrayList<>();
+        String[] cats = { Intent.CATEGORY_LEANBACK_LAUNCHER, Intent.CATEGORY_LAUNCHER };
+        for (String cat : cats) {
+            Intent q = new Intent(Intent.ACTION_MAIN).addCategory(cat);
+            for (ResolveInfo ri : pm.queryIntentActivities(q, 0)) {
+                if (ri.activityInfo != null) keys.add(ri.activityInfo.packageName + "/" + ri.activityInfo.name);
+            }
+        }
+        Collections.sort(keys);
+        return keys.toString();
     }
 
     private List<AppEntry> queryApps() {
