@@ -38,6 +38,7 @@ import java.util.Map;
 public class MainActivity extends Activity {
     private static final String PREFS = "glasshome";
     private static final String K_DOCK = "dock";
+    private static final String K_GRID = "grid";
     private static final String K_LAST = "last";
     private static final String K_ASKED = "asked_location";
 
@@ -126,11 +127,12 @@ public class MainActivity extends Activity {
     private void loadApps() {
         dirty = false;
         final String dock = prefs.getString(K_DOCK, DEFAULT_DOCK);
+        final String gridOrder = prefs.getString(K_GRID, "");
         final String last = prefs.getString(K_LAST, null);
         new Thread(() -> {
             final List<AppEntry> list = queryApps();
             runOnUiThread(() -> {
-                if (!isDestroyed()) view.setApps(list, dock, last);
+                if (!isDestroyed()) view.setApps(list, dock, gridOrder, last);
             });
         }).start();
     }
@@ -268,6 +270,10 @@ public class MainActivity extends Activity {
     public void onRequestPermissionsResult(int code, String[] perms, int[] res) {
         super.onRequestPermissionsResult(code, perms, res);
         if (view != null) view.refreshWifi();
+    }
+
+    void saveLayout(String dockCsv, String gridCsv) {
+        prefs.edit().putString(K_DOCK, dockCsv).putString(K_GRID, gridCsv).apply();
     }
 
     void saveLast(String s) {

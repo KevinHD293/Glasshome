@@ -40,6 +40,8 @@ final class HomeView extends View {
     private static final int ZT = 0, ZD = 1, ZG = 2;   // zones: top bar, dock, grid
     private static final int COLS = 4, DOCK_MAX = 4;
     private static final float POP = 1.07f;
+    private static final float HELD = 1.14f;
+    private static final int P_ARR = 0, P_IN = 1, P_WIFI = 2, P_SET = 3, NP = 4;   // top-bar pills
 
     private static final class Spring {
         float v, t, vel, k = 520f, c = 34f, eps = 0.3f, veps = 2f;
@@ -60,7 +62,10 @@ final class HomeView extends View {
     private final ArrayList<AppEntry> dock = new ArrayList<>();
     private final ArrayList<AppEntry> grid = new ArrayList<>();
     private int zone = ZD, topIdx = 0, dockIdx = 0, gridIdx = 0;
-    private boolean centerDown = false;
+    private boolean centerDown = false, longHandled = false;
+    private boolean arrange = false, tempArrange = false;   // arrange mode / entered by long-press
+    private AppEntry held = null;                           // app currently picked up
+    private ArrayList<AppEntry> snapDock = new ArrayList<>(), snapGrid = new ArrayList<>();
 
     private boolean ddOpen = false;
     private int ddIdx = 0;
@@ -80,8 +85,8 @@ final class HomeView extends View {
 
     private float W, H, mx, dockTop, bandH, slotW, slotH, padD, gapD;
     private float cellW, tileW, tileH, rowH, gridTop, pillH;
-    private final RectF[] pill = { new RectF(), new RectF(), new RectF() };
-    private final String[] pillText = { "Inputs", "Wi-Fi", "Settings" };
+    private final RectF[] pill = { new RectF(), new RectF(), new RectF(), new RectF() };
+    private final String[] pillText = { "Sắp xếp", "Inputs", "Wi-Fi", "Settings" };
 
     private int glowCur = 0xFF8E8E93, glowTgt = 0xFF8E8E93, shaderColor = 0;
     private RadialGradient glowShader;
@@ -117,12 +122,12 @@ final class HomeView extends View {
         boolean h24 = android.text.format.DateFormat.is24HourFormat(ctx);
         timeFmt = new SimpleDateFormat(h24 ? "HH:mm" : "h:mm", Locale.getDefault());
         dateFmt = new SimpleDateFormat("EEEE, d MMMM", Locale.getDefault());
-        pillText[1] = act.wifiLabel();
+        pillText[P_WIFI] = act.wifiLabel();
     }
 
     // ------------------------------------------------------------------ data
 
-    void setApps(List<AppEntry> all, String dockCsv, String last) {
+    void setApps(List<AppEntry> all, String dockCsv, String gridCsv, String last) {
         String cur = focusKey();
         if (cur == null) cur = last;
         dock.clear();
@@ -142,6 +147,20 @@ final class HomeView extends View {
             if (used.add(e.cn.getPackageName())) dock.add(e);
         }
         for (AppEntry e : all) if (!used.contains(e.cn.getPackageName())) grid.add(e);
+        // saved grid order first, then any other apps in A-Z order
+        if (gridCsv != null && gridCsv.length() > 0) {
+            ArrayList<AppEntry> ordered = new ArrayList<>();
+            Set<String> in = new HashSet<>();
+            for (String s2 : gridCsv.split(",")) {
+                s2 = s2.trim();
+                AppEntry e = by.get(s2);
+                if (e != null && !used.contains(s2) && in.add(s2)) ordered.add(e);
+            }
+            for (AppEntry e : grid) if (!in.contains(e.cn.getPackageName())) ordered.add(e);
+            grid.clear();
+            grid.addAll(ordered);
+        }
+        held = null; arrange = false; tempArrange = false; pillText[P_ARR] = "Sắp xếp";
 
         // restore focus
         zone = ZD; dockIdx = 0; gridIdx = 0;
@@ -177,6 +196,8 @@ final class HomeView extends View {
 
     void goHome() {
         ddOpen = false;
+        if (held != null) cancelMove();
+        if (arrange) exitArrange();
         if (zone != ZD) { zone = ZD; fixZone(); }
         retarget(false);
     }
@@ -184,7 +205,7 @@ final class HomeView extends View {
     void refreshWifi() {
         String s = act.wifiLabel();
         if (s.length() > 20) s = s.substring(0, 20) + "…";
-        pillText[1] = s;
+        pillText[P_WIFI] = s;
         relayout();
         retarget(false);
     }
@@ -221,7 +242,7 @@ final class HomeView extends View {
         text.setTypeface(regular);
         text.setTextSize(18 * dp);
         float right = W - mx;
-        for (int i = 2; i >= 0; i--) {
+        for (int i = NP - 1; i >= 0; i--) {
             float w = text.measureText(pillText[i]) + 40 * dp;
             pill[i].set(right - w, 40 * dp, right, 40 * dp + pillH);
             right -= w + 14 * dp;
@@ -292,9 +313,12 @@ final class HomeView extends View {
             case KeyEvent.KEYCODE_DPAD_CENTER:
             case KeyEvent.KEYCODE_ENTER:
             case KeyEvent.KEYCODE_NUMPAD_ENTER:
-                if (e.getRepeatCount() == 0) centerDown = true;
+                if (e.getRepeatCount() == 0) { centerDown = true; longHandled = false; }
+                else if (e.getRepeatCount() == 1 && centerDown && !longHandled) { longHandled = true; longPress(); }
                 return true;
             case KeyEvent.KEYCODE_BACK:
+                if (held != null) { cancelMove(); return true; }
+                if (arrange) { exitArrange(); return true; }
                 if (zone != ZD && !dock.isEmpty()) { zone = ZD; focusMoved(); }
                 return true; // a launcher never exits on Back
         }
@@ -304,7 +328,7 @@ final class HomeView extends View {
     boolean onNavUp(int k, KeyEvent e) {
         if (k == KeyEvent.KEYCODE_DPAD_CENTER || k == KeyEvent.KEYCODE_ENTER
                 || k == KeyEvent.KEYCODE_NUMPAD_ENTER) {
-            if (centerDown) { centerDown = false; activate(); }
+            if (centerDown) { centerDown = false; if (!longHandled) activate(); longHandled = false; }
             return true;
         }
         return false;
@@ -328,9 +352,10 @@ final class HomeView extends View {
     }
 
     private void move(int dx, int dy) {
+        if (held != null) { moveHeld(dx, dy); return; }
         int oz = zone, ot = topIdx, od = dockIdx, og = gridIdx;
         if (zone == ZT) {
-            if (dx != 0) topIdx = Math.max(0, Math.min(2, topIdx + dx));   // ends do not fall through
+            if (dx != 0) topIdx = Math.max(0, Math.min(NP - 1, topIdx + dx));   // ends do not fall through
             else if (dy > 0) {
                 if (!dock.isEmpty()) zone = ZD;
                 else if (!grid.isEmpty()) { zone = ZG; gridIdx = 0; }
@@ -364,12 +389,146 @@ final class HomeView extends View {
             invalidate();
             return;
         }
+        if (held != null) { drop(); return; }
         if (zone == ZT) {
-            if (topIdx == 0) { inputs = act.listInputs(); ddIdx = 0; ddOpen = true; invalidate(); }
-            else if (topIdx == 1) act.openWifi();
+            if (topIdx == P_ARR) toggleArrange();
+            else if (topIdx == P_IN) { inputs = act.listInputs(); ddIdx = 0; ddOpen = true; invalidate(); }
+            else if (topIdx == P_WIFI) act.openWifi();
             else act.openSettings();
-        } else if (zone == ZD && !dock.isEmpty()) act.launch(dock.get(dockIdx));
+        } else if (arrange && (zone == ZD || zone == ZG)) pickUp();
+        else if (zone == ZD && !dock.isEmpty()) act.launch(dock.get(dockIdx));
         else if (zone == ZG && !grid.isEmpty()) act.launch(grid.get(gridIdx));
+    }
+
+
+    // ------------------------------------------------------- arrange / move
+
+    /** Holding OK on a dock or grid tile starts arrange mode and picks the app up. */
+    private void longPress() {
+        if (ddOpen || held != null) return;
+        if (zone != ZD && zone != ZG) return;
+        if (!arrange) { arrange = true; tempArrange = true; setArrangeLabel(); }
+        pickUp();
+    }
+
+    private void setArrangeLabel() {
+        pillText[P_ARR] = arrange ? "Xong" : "Sắp xếp";
+        relayout();
+        retarget(false);
+    }
+
+    private void toggleArrange() {
+        arrange = !arrange;
+        tempArrange = false;
+        setArrangeLabel();
+    }
+
+    private void exitArrange() {
+        arrange = false;
+        tempArrange = false;
+        setArrangeLabel();
+    }
+
+    private void pickUp() {
+        AppEntry cur = null;
+        if (zone == ZD && !dock.isEmpty()) cur = dock.get(dockIdx);
+        else if (zone == ZG && !grid.isEmpty()) cur = grid.get(gridIdx);
+        if (cur == null) return;
+        held = cur;
+        snapDock = new ArrayList<>(dock);
+        snapGrid = new ArrayList<>(grid);
+        focusMoved();
+    }
+
+    private void drop() {
+        held = null;
+        saveLayoutNow();
+        if (tempArrange) exitArrange(); else focusMoved();
+    }
+
+    private void cancelMove() {
+        AppEntry h = held;
+        held = null;
+        dock.clear(); dock.addAll(snapDock);
+        grid.clear(); grid.addAll(snapGrid);
+        int di = dock.indexOf(h);
+        if (di >= 0) { zone = ZD; dockIdx = di; }
+        else { zone = ZG; gridIdx = Math.max(0, grid.indexOf(h)); }
+        fixZone();
+        if (tempArrange) exitArrange(); else focusMoved();
+    }
+
+    private void moveHeld(int dx, int dy) {
+        boolean changed = false;
+        if (zone == ZD) {
+            int i = dockIdx;
+            if (dx != 0) {
+                int n = i + dx;
+                if (n >= 0 && n < dock.size()) { dock.remove(i); dock.add(n, held); dockIdx = n; changed = true; }
+            } else if (dy > 0 && dock.size() > 1) {
+                if (grid.isEmpty()) {
+                    dock.remove(i); grid.add(held); zone = ZG; gridIdx = 0; changed = true;
+                } else {
+                    // the grid app under this slot takes the dock slot, the held app goes to the grid
+                    int g = Math.min(i, grid.size() - 1);
+                    AppEntry other = grid.get(g);
+                    dock.set(i, other); grid.set(g, held);
+                    zone = ZG; gridIdx = g; changed = true;
+                }
+            }
+        } else if (zone == ZG) {
+            int i = gridIdx;
+            if (dx != 0) {
+                int n = i + dx;
+                if (n >= 0 && n < grid.size()) { grid.remove(i); grid.add(n, held); gridIdx = n; changed = true; }
+            } else if (dy > 0) {
+                int n = Math.min(grid.size() - 1, i + COLS);
+                if (n > i) { grid.remove(i); grid.add(n, held); gridIdx = n; changed = true; }
+            } else if (dy < 0) {
+                if (i >= COLS) {
+                    grid.remove(i); grid.add(i - COLS, held); gridIdx = i - COLS; changed = true;
+                } else {
+                    int slotI = Math.min(i % COLS, dock.size());
+                    if (dock.size() < DOCK_MAX) {
+                        grid.remove(i);
+                        dock.add(slotI, held);
+                        zone = ZD; dockIdx = slotI; changed = true;
+                    } else {
+                        AppEntry other = dock.get(slotI);
+                        dock.set(slotI, held); grid.set(i, other);
+                        zone = ZD; dockIdx = slotI; changed = true;
+                    }
+                }
+            }
+        }
+        if (changed) { fixZone(); focusMoved(); }
+    }
+
+    private void saveLayoutNow() {
+        StringBuilder d = new StringBuilder(), g = new StringBuilder();
+        for (AppEntry e : dock) { if (d.length() > 0) d.append(','); d.append(e.cn.getPackageName()); }
+        for (AppEntry e : grid) { if (g.length() > 0) g.append(','); g.append(e.cn.getPackageName()); }
+        act.saveLayout(d.toString(), g.toString());
+    }
+
+    private void drawHint(Canvas c) {
+        String msg;
+        if (held != null) msg = "Đang di chuyển " + held.label + "  ·  Mũi tên: di chuyển  ·  OK: thả  ·  Back: huỷ";
+        else if (arrange) msg = "Chế độ sắp xếp  ·  OK: nhấc app lên  ·  Back: thoát";
+        else return;
+        text.setTextAlign(Paint.Align.LEFT);
+        text.setTypeface(regular);
+        text.setTextSize(18 * dp);
+        float maxW = Math.max(240 * dp, pill[0].left - mx - 24 * dp);
+        CharSequence s = TextUtils.ellipsize(msg, text, maxW - 28 * dp, TextUtils.TruncateAt.END);
+        float tw = text.measureText(s, 0, s.length());
+        rf.set(mx, 6 * dp, mx + tw + 28 * dp, 38 * dp);
+        p.setStyle(Paint.Style.FILL);
+        p.setColor(0xEE2A2A2E);
+        c.drawRoundRect(rf, 16 * dp, 16 * dp, p);
+        Paint.FontMetrics fm = text.getFontMetrics();
+        text.setColor(Color.WHITE);
+        c.drawText(s, 0, s.length(), mx + 14 * dp, rf.centerY() - (fm.ascent + fm.descent) / 2f, text);
     }
 
     // ------------------------------------------------------------------ draw
@@ -421,7 +580,7 @@ final class HomeView extends View {
             c.drawRoundRect(rf, 36 * dp, 36 * dp, p);
         }
         // pill backgrounds
-        for (int i = 0; i < 3; i++) {
+        for (int i = 0; i < NP; i++) {
             p.setStyle(Paint.Style.FILL);
             p.setColor(0x30FFFFFF);
             c.drawRoundRect(pill[i], pillH / 2, pillH / 2, p);
@@ -445,6 +604,7 @@ final class HomeView extends View {
         if (ddOpen) drawDropdown(c);
 
         c.restore();
+        drawHint(c);
         if (anim) postInvalidateOnAnimation(); else lastNs = 0;
     }
 
@@ -492,7 +652,7 @@ final class HomeView extends View {
         text.setColor(Color.WHITE);
         text.setTextAlign(Paint.Align.CENTER);
         Paint.FontMetrics fm = text.getFontMetrics();
-        for (int i = 0; i < 3; i++) {
+        for (int i = 0; i < NP; i++) {
             float by = pill[i].centerY() - (fm.ascent + fm.descent) / 2f;
             c.drawText(pillText[i], pill[i].centerX(), by, text);
         }
@@ -526,7 +686,7 @@ final class HomeView extends View {
     private void drawDock(Canvas c) {
         for (int i = 0; i < dock.size(); i++) {
             slot(i, tmp);
-            drawArt(c, dock.get(i), tmp, (zone == ZD && i == dockIdx) ? pop.v : 1f);
+            drawArt(c, dock.get(i), tmp, (zone == ZD && i == dockIdx) ? (held != null ? HELD : pop.v) : 1f);
         }
     }
 
@@ -537,9 +697,10 @@ final class HomeView extends View {
             gridRect(i, tmp);
             if (tmp.bottom + 40 * dp - scroll.v < 0 || tmp.top - scroll.v > H) continue;
             boolean f = zone == ZG && i == gridIdx;
-            drawArt(c, grid.get(i), tmp, f ? pop.v : 1f);
+            float sc = f ? (held != null ? HELD : pop.v) : 1f;
+            drawArt(c, grid.get(i), tmp, sc);
             if (f) {
-                float extra = tmp.height() * (pop.v - 1f) / 2f;
+                float extra = tmp.height() * (sc - 1f) / 2f;
                 text.setTextAlign(Paint.Align.CENTER);
                 text.setColor(Color.WHITE);
                 CharSequence s = TextUtils.ellipsize(grid.get(i).label, text, tileW, TextUtils.TruncateAt.END);
@@ -575,7 +736,7 @@ final class HomeView extends View {
     private void drawDropdown(Canvas c) {
         float w = 300 * dp, rowH2 = 48 * dp;
         int n = Math.max(1, inputs.size());
-        float x = pill[0].left, y = pill[0].bottom + 10 * dp, h = n * rowH2 + 16 * dp;
+        float x = pill[P_IN].left, y = pill[P_IN].bottom + 10 * dp, h = n * rowH2 + 16 * dp;
         rf.set(x, y, x + w, y + h);
         p.setStyle(Paint.Style.FILL);
         p.setColor(0xF2222226);
