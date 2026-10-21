@@ -39,6 +39,8 @@ public class MainActivity extends Activity {
     private static final String PREFS = "glasshome";
     private static final String K_DOCK = "dock";
     private static final String K_GRID = "grid";
+    private static final String K_SOUND = "sound";
+    private static final String K_SFXVOL = "sfxvol";
     private static final String K_LAST = "last";
     private static final String K_ASKED = "asked_location";
 
@@ -47,6 +49,7 @@ public class MainActivity extends Activity {
             "com.google.android.youtube.tv,com.netflix.ninja,com.android.vending,com.android.tv.settings";
 
     private HomeView view;
+    Sfx sfx;
     private SharedPreferences prefs;
     private boolean dirty = true;
 
@@ -63,6 +66,7 @@ public class MainActivity extends Activity {
         prefs = getSharedPreferences(PREFS, MODE_PRIVATE);
         handleExtras(getIntent());
         getWindow().setBackgroundDrawable(new ColorDrawable(Color.BLACK));
+        sfx = new Sfx(this, prefs.getBoolean(K_SOUND, true), prefs.getFloat(K_SFXVOL, 0.5f));
         view = new HomeView(this);
         setContentView(view);
         requestLocationOnce();
@@ -100,6 +104,12 @@ public class MainActivity extends Activity {
     }
 
     @Override
+    protected void onDestroy() {
+        super.onDestroy();
+        if (sfx != null) sfx.release();
+    }
+
+    @Override
     protected void onPause() {
         super.onPause();
         view.saveFocus();
@@ -110,6 +120,7 @@ public class MainActivity extends Activity {
         super.onNewIntent(intent);
         setIntent(intent);
         handleExtras(intent);
+        sfx.configure(prefs.getBoolean(K_SOUND, true), prefs.getFloat(K_SFXVOL, 0.5f));
         if (dirty) loadApps();
         view.goHome();
     }
@@ -117,6 +128,8 @@ public class MainActivity extends Activity {
     // adb shell am start -n com.local.glasshome/.MainActivity --es dock "pkg1,pkg2,pkg3,pkg4"
     private void handleExtras(Intent i) {
         if (i == null) return;
+        if (i.hasExtra("sound")) prefs.edit().putBoolean(K_SOUND, i.getBooleanExtra("sound", true)).apply();
+        if (i.hasExtra("sfxvol")) prefs.edit().putFloat(K_SFXVOL, i.getFloatExtra("sfxvol", 0.5f)).apply();
         String d = i.getStringExtra("dock");
         if (d != null) {
             prefs.edit().putString(K_DOCK, d).apply();

@@ -336,8 +336,18 @@ final class HomeView extends View {
 
     private boolean ddDown(int k, KeyEvent e) {
         switch (k) {
-            case KeyEvent.KEYCODE_DPAD_UP: ddIdx = Math.max(0, ddIdx - 1); break;
-            case KeyEvent.KEYCODE_DPAD_DOWN: ddIdx = Math.min(Math.max(0, inputs.size() - 1), ddIdx + 1); break;
+            case KeyEvent.KEYCODE_DPAD_UP: {
+                int o = ddIdx;
+                ddIdx = Math.max(0, ddIdx - 1);
+                if (o != ddIdx) act.sfx.move();
+                break;
+            }
+            case KeyEvent.KEYCODE_DPAD_DOWN: {
+                int o = ddIdx;
+                ddIdx = Math.min(Math.max(0, inputs.size() - 1), ddIdx + 1);
+                if (o != ddIdx) act.sfx.move();
+                break;
+            }
             case KeyEvent.KEYCODE_DPAD_LEFT:
             case KeyEvent.KEYCODE_DPAD_RIGHT:
             case KeyEvent.KEYCODE_BACK: ddOpen = false; break;
@@ -379,17 +389,19 @@ final class HomeView extends View {
                 else zone = ZT;
             }
         }
-        if (oz != zone || ot != topIdx || od != dockIdx || og != gridIdx) focusMoved();
+        if (oz != zone || ot != topIdx || od != dockIdx || og != gridIdx) { act.sfx.move(); focusMoved(); }
     }
 
     private void activate() {
         if (ddOpen) {
             ddOpen = false;
+            act.sfx.open();
             if (!inputs.isEmpty()) act.switchInput(inputs.get(ddIdx));
             invalidate();
             return;
         }
         if (held != null) { drop(); return; }
+        if (!(arrange && (zone == ZD || zone == ZG))) act.sfx.open();
         if (zone == ZT) {
             if (topIdx == P_ARR) toggleArrange();
             else if (topIdx == P_IN) { inputs = act.listInputs(); ddIdx = 0; ddOpen = true; invalidate(); }
@@ -435,6 +447,7 @@ final class HomeView extends View {
         else if (zone == ZG && !grid.isEmpty()) cur = grid.get(gridIdx);
         if (cur == null) return;
         held = cur;
+        act.sfx.pick();
         snapDock = new ArrayList<>(dock);
         snapGrid = new ArrayList<>(grid);
         focusMoved();
@@ -442,6 +455,7 @@ final class HomeView extends View {
 
     private void drop() {
         held = null;
+        act.sfx.drop();
         saveLayoutNow();
         if (tempArrange) exitArrange(); else focusMoved();
     }
@@ -449,6 +463,7 @@ final class HomeView extends View {
     private void cancelMove() {
         AppEntry h = held;
         held = null;
+        act.sfx.drop();
         dock.clear(); dock.addAll(snapDock);
         grid.clear(); grid.addAll(snapGrid);
         int di = dock.indexOf(h);
@@ -501,7 +516,7 @@ final class HomeView extends View {
                 }
             }
         }
-        if (changed) { fixZone(); focusMoved(); }
+        if (changed) { act.sfx.move(); fixZone(); focusMoved(); }
     }
 
     private void saveLayoutNow() {
