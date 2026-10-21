@@ -43,6 +43,9 @@ public class MainActivity extends Activity {
     private static final String K_GRID = "grid";
     private static final String K_SOUND = "sound";
     private static final String K_SFXVOL = "sfxvol";
+    private static final String K_WLAT = "w_lat";
+    private static final String K_WLON = "w_lon";
+    private static final String K_WDATA = "w_data";
     private static final String K_LAST = "last";
     private static final String K_ASKED = "asked_location";
 
@@ -52,6 +55,8 @@ public class MainActivity extends Activity {
 
     private HomeView view;
     Sfx sfx;
+    private Weather weather;
+    private boolean weatherBusy = false;
     private SharedPreferences prefs;
     private boolean dirty = true;
 
@@ -71,6 +76,8 @@ public class MainActivity extends Activity {
         sfx = new Sfx(this, prefs.getBoolean(K_SOUND, true), prefs.getFloat(K_SFXVOL, 0.5f));
         view = new HomeView(this);
         setContentView(view);
+        weather = Weather.decode(prefs.getString(K_WDATA, ""));
+        view.setWeather(weather);
         requestLocationOnce();
         IntentFilter pf = new IntentFilter();
         pf.addAction(Intent.ACTION_PACKAGE_ADDED);
@@ -100,6 +107,7 @@ public class MainActivity extends Activity {
     protected void onResume() {
         super.onResume();
         if (dirty) loadApps(); else checkForChanges();
+        refreshWeather(false);
         view.refreshWifi();
         view.tick();
     }
@@ -132,6 +140,8 @@ public class MainActivity extends Activity {
         if (i == null) return;
         if (i.hasExtra("sound")) prefs.edit().putBoolean(K_SOUND, i.getBooleanExtra("sound", true)).apply();
         if (i.hasExtra("sfxvol")) prefs.edit().putFloat(K_SFXVOL, i.getFloatExtra("sfxvol", 0.5f)).apply();
+        String city = i.getStringExtra("city");
+        if (city != null && city.trim().length() > 0) setCity(city.trim());
         String d = i.getStringExtra("dock");
         if (d != null) {
             prefs.edit().putString(K_DOCK, d).apply();
@@ -221,6 +231,50 @@ public class MainActivity extends Activity {
         } catch (Exception ex) {
             Toast.makeText(this, "Không mở được " + e.label, Toast.LENGTH_SHORT).show();
         }
+    }
+
+    // ---- weather (Open-Meteo): fetched on return to the home screen, at most every 30 minutes ----
+
+    private double pd(String key, double def) {
+        try { return Double.parseDouble(prefs.getString(key, String.valueOf(def))); }
+        catch (Exception e) { return def; }
+    }
+
+    void refreshWeather(final boolean force) {
+        if (weatherBusy) return;
+        if (!force && weather != null && System.currentTimeMillis() - weather.time < 30L * 60L * 1000L) return;
+        weatherBusy = true;
+        final double lat = pd(K_WLAT, 12.6667);   // default: Buon Ma Thuot
+        final double lon = pd(K_WLON, 108.05);
+        new Thread(() -> {
+            final Weather w = Weather.fetch(lat, lon);
+            runOnUiThread(() -> {
+                weatherBusy = false;
+                if (isDestroyed() || w == null) return;
+                weather = w;
+                prefs.edit().putString(K_WDATA, w.encode()).apply();
+                if (view != null) view.setWeather(w);
+            });
+        }).start();
+    }
+
+    // adb shell am start -n com.local.glasshome/.MainActivity --es city "'Da Nang'"
+    private void setCity(final String name) {
+        new Thread(() -> {
+            final String[] r = Weather.geocode(name);
+            runOnUiThread(() -> {
+                if (isDestroyed()) return;
+                if (r == null) {
+                    Toast.makeText(this, "Không tìm thấy thành phố: " + name, Toast.LENGTH_LONG).show();
+                    return;
+                }
+                prefs.edit().putString(K_WLAT, r[0]).putString(K_WLON, r[1]).remove(K_WDATA).apply();
+                weather = null;
+                if (view != null) view.setWeather(null);
+                Toast.makeText(this, "Thời tiết: " + r[2], Toast.LENGTH_SHORT).show();
+                refreshWeather(true);
+            });
+        }).start();
     }
 
     /** Only apps the user installed can be removed; system apps cannot. */

@@ -41,6 +41,8 @@ final class HomeView extends View {
     private static final int COLS = 4, DOCK_MAX = 4;
     private static final float POP = 1.07f;
     private static final float HELD = 1.14f;
+    private static final float[] FOG_Y = { -0.45f, -0.15f, 0.15f, 0.45f };
+    private static final float[] FOG_W = { 0.7f, 0.9f, 0.9f, 0.6f };
     private static final int M_MOVE = 0, M_DEL = 1, M_NOTE = 2, M_CLOSE = 3;   // app menu rows
     private static final int P_ARR = 0, P_IN = 1, P_WIFI = 2, P_SET = 3, NP = 4;   // top-bar pills
 
@@ -84,10 +86,12 @@ final class HomeView extends View {
     private final TextPaint text = new TextPaint(Paint.ANTI_ALIAS_FLAG);
     private final Paint glowPaint = new Paint(Paint.ANTI_ALIAS_FLAG);
     private final Paint wallPaint = new Paint(Paint.FILTER_BITMAP_FLAG);
-    private final Path path = new Path();
+    private final Path path = new Path(), path2 = new Path();
     private final RectF rf = new RectF(), tmp = new RectF();
     private Typeface light, regular;
     private Bitmap wall;
+    private Weather weather;
+    private float clockW = 0;
 
     private float W, H, mx, dockTop, bandH, slotW, slotH, padD, gapD;
     private float cellW, tileW, tileH, rowH, gridTop, pillH;
@@ -216,6 +220,8 @@ final class HomeView extends View {
         relayout();
         retarget(false);
     }
+
+    void setWeather(Weather w) { weather = w; invalidate(); }
 
     void tick() { invalidate(); }
 
@@ -766,10 +772,133 @@ final class HomeView extends View {
         text.setTextSize(104 * dp);
         text.setColor(Color.WHITE);
         c.drawText(timeStr, mx, 184 * dp, text);
+        clockW = text.measureText(timeStr);
         text.setTypeface(regular);
         text.setTextSize(26 * dp);
         text.setColor(0xAAFFFFFF);
         c.drawText(dateStr, mx, 226 * dp, text);
+        drawWeather(c);
+    }
+
+    // --------------------------------------------------------------- weather
+
+    private void drawWeather(Canvas c) {
+        Weather w = weather;
+        if (w == null) return;
+        float x = mx + clockW + 64 * dp;
+        drawIcon(c, w, x + 32 * dp, 138 * dp, 64 * dp);
+        text.setTextAlign(Paint.Align.LEFT);
+        text.setTypeface(light);
+        text.setTextSize(56 * dp);
+        text.setColor(Color.WHITE);
+        c.drawText(Math.round(w.temp) + "°", x + 88 * dp, 154 * dp, text);
+        text.setTypeface(regular);
+        text.setTextSize(22 * dp);
+        text.setColor(0xCCFFFFFF);
+        c.drawText(w.text(), x + 88 * dp, 186 * dp, text);
+        text.setColor(0x99FFFFFF);
+        c.drawText("Cao " + Math.round(w.hi) + "°  Thấp " + Math.round(w.lo) + "°", x + 88 * dp, 214 * dp, text);
+    }
+
+    private void stroke(float width, int color) {
+        p.setStyle(Paint.Style.STROKE);
+        p.setStrokeCap(Paint.Cap.ROUND);
+        p.setStrokeWidth(width);
+        p.setColor(color);
+    }
+
+    private void drawIcon(Canvas c, Weather w, float cx, float cy, float s) {
+        float u = s / 2f;
+        switch (w.kind()) {
+            case Weather.SUN:
+                sun(c, cx, cy, 0.55f * u);
+                break;
+            case Weather.MOON:
+                moon(c, cx, cy, 0.62f * u);
+                break;
+            case Weather.PARTLY:
+                if (w.day) sun(c, cx - 0.28f * u, cy - 0.28f * u, 0.38f * u);
+                else moon(c, cx - 0.28f * u, cy - 0.28f * u, 0.42f * u);
+                cloud(c, cx + 0.12f * u, cy + 0.2f * u, 0.8f * u);
+                break;
+            case Weather.FOG:
+                stroke(Math.max(2 * dp, 0.1f * u), 0xFFB0B6C0);
+                for (int i = 0; i < 4; i++) {
+                    float y = cy + FOG_Y[i] * u;
+                    c.drawLine(cx - FOG_W[i] * u, y, cx + FOG_W[i] * u, y, p);
+                }
+                break;
+            case Weather.RAIN:
+                cloud(c, cx, cy - 0.25f * u, 0.8f * u);
+                stroke(Math.max(2 * dp, 0.12f * u), 0xFF4FC3F7);
+                for (int i = -1; i <= 1; i++) {
+                    float x = cx + i * 0.45f * u;
+                    c.drawLine(x + 0.1f * u, cy + 0.45f * u, x - 0.1f * u, cy + 0.85f * u, p);
+                }
+                break;
+            case Weather.STORM:
+                cloud(c, cx, cy - 0.25f * u, 0.8f * u);
+                path.reset();
+                path.moveTo(cx + 0.08f * u, cy + 0.3f * u);
+                path.lineTo(cx - 0.22f * u, cy + 0.65f * u);
+                path.lineTo(cx - 0.02f * u, cy + 0.65f * u);
+                path.lineTo(cx - 0.14f * u, cy + 1.0f * u);
+                path.lineTo(cx + 0.26f * u, cy + 0.55f * u);
+                path.lineTo(cx + 0.04f * u, cy + 0.55f * u);
+                path.close();
+                p.setStyle(Paint.Style.FILL);
+                p.setColor(0xFFFFC107);
+                c.drawPath(path, p);
+                break;
+            case Weather.SNOW:
+                cloud(c, cx, cy - 0.25f * u, 0.8f * u);
+                p.setStyle(Paint.Style.FILL);
+                p.setColor(Color.WHITE);
+                for (int i = -1; i <= 1; i++) {
+                    c.drawCircle(cx + i * 0.45f * u, cy + (i == 0 ? 0.8f : 0.6f) * u, 0.08f * u, p);
+                }
+                break;
+            default:
+                cloud(c, cx, cy, 0.9f * u);
+                break;
+        }
+        p.setStyle(Paint.Style.FILL);
+        p.setStrokeCap(Paint.Cap.BUTT);
+    }
+
+    /** (cx, cy) is the centre of the cloud's bounding box, r is half its width. */
+    private void cloud(Canvas c, float cx, float cy, float r) {
+        float b = cy + 0.2f * r;
+        p.setStyle(Paint.Style.FILL);
+        p.setColor(0xFFE3E6EC);
+        rf.set(cx - r, b - 0.1f * r, cx + r, b + 0.5f * r);
+        c.drawRoundRect(rf, 0.3f * r, 0.3f * r, p);
+        c.drawCircle(cx - 0.45f * r, b - 0.1f * r, 0.4f * r, p);
+        c.drawCircle(cx + 0.05f * r, b - 0.35f * r, 0.55f * r, p);
+        c.drawCircle(cx + 0.55f * r, b - 0.05f * r, 0.38f * r, p);
+    }
+
+    private void sun(Canvas c, float cx, float cy, float r) {
+        p.setStyle(Paint.Style.FILL);
+        p.setColor(0xFFFFC107);
+        c.drawCircle(cx, cy, r, p);
+        stroke(Math.max(2 * dp, 0.2f * r), 0xFFFFC107);
+        for (int i = 0; i < 8; i++) {
+            double a = i * Math.PI / 4;
+            float ca = (float) Math.cos(a), sa = (float) Math.sin(a);
+            c.drawLine(cx + ca * 1.35f * r, cy + sa * 1.35f * r, cx + ca * 1.75f * r, cy + sa * 1.75f * r, p);
+        }
+    }
+
+    private void moon(Canvas c, float cx, float cy, float r) {
+        path.reset();
+        path.addCircle(cx, cy, r, Path.Direction.CW);
+        path2.reset();
+        path2.addCircle(cx + 0.5f * r, cy - 0.35f * r, 0.85f * r, Path.Direction.CW);
+        path.op(path2, Path.Op.DIFFERENCE);
+        p.setStyle(Paint.Style.FILL);
+        p.setColor(0xFFE8EAF6);
+        c.drawPath(path, p);
     }
 
     private void drawPillText(Canvas c) {
