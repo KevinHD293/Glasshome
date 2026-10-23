@@ -5,6 +5,8 @@ import android.graphics.Bitmap;
 import android.graphics.BitmapFactory;
 import android.graphics.Canvas;
 import android.graphics.Color;
+import android.graphics.LinearGradient;
+import android.graphics.Matrix;
 import android.graphics.Paint;
 import android.graphics.Path;
 import android.graphics.RadialGradient;
@@ -94,10 +96,12 @@ final class HomeView extends View {
     private Weather weather;
     private float clockW = 0;
     private final RectF rg = new RectF();
-    private boolean bgAnim = true;
-    private final Paint[] bgPaint = { new Paint(Paint.ANTI_ALIAS_FLAG), new Paint(Paint.ANTI_ALIAS_FLAG), new Paint(Paint.ANTI_ALIAS_FLAG) };
-    private final int[] bgHue = { -1, -1, -1 };
-    private final float[] bgHsv = new float[3];
+    // unit-height vertical gradients (scaled to each panel): smooth sheen and rim, no hard light/dark seam
+    private final Matrix gm = new Matrix();
+    private final LinearGradient bodyShader = new LinearGradient(0, 0, 0, 1,
+            new int[] { 0xFFFFFFFF, 0xB8FFFFFF, 0x80FFFFFF, 0x61FFFFFF }, new float[] { 0f, 0.35f, 0.7f, 1f }, Shader.TileMode.CLAMP);
+    private final LinearGradient rimShader = new LinearGradient(0, 0, 0, 1,
+            new int[] { 0xF0FFFFFF, 0x99FFFFFF, 0x59FFFFFF, 0x3DFFFFFF }, new float[] { 0f, 0.3f, 0.65f, 1f }, Shader.TileMode.CLAMP);
 
     private float W, H, mx, dockTop, bandH, slotW, slotH, padD, gapD;
     private float cellW, tileW, tileH, rowH, gridTop, pillH;
@@ -229,8 +233,6 @@ final class HomeView extends View {
 
     void setWeather(Weather w) { weather = w; invalidate(); }
 
-    void setBgAnim(boolean on) { bgAnim = on; invalidate(); }
-
     void tick() { invalidate(); }
 
     // ---------------------------------------------------------------- layout
@@ -259,7 +261,6 @@ final class HomeView extends View {
         rowH = tileH + 64 * dp;
         gridTop = H + 24 * dp;
         pillH = 48 * dp;
-        bgHue[0] = bgHue[1] = bgHue[2] = -1;   // rebuild background gradients for the new size
 
         float right = W - mx;
         for (int i = NP - 1; i >= 0; i--) {
@@ -700,7 +701,6 @@ final class HomeView extends View {
         c.drawColor(Color.BLACK);
         if (W == 0) return;
         drawWall(c);
-        drawBackground(c);
         refreshClock();
 
         c.save();
@@ -739,11 +739,7 @@ final class HomeView extends View {
         c.restore();
         drawHint(c);
         drawMenu(c);
-        if (anim) postInvalidateOnAnimation();
-        else {
-            lastNs = 0;
-            if (bgAnim && wall == null) postInvalidateDelayed(50);   // ~20 fps while only the background moves
-        }
+        if (anim) postInvalidateOnAnimation(); else lastNs = 0;
     }
 
     private void drawWall(Canvas c) {
@@ -909,31 +905,26 @@ final class HomeView extends View {
 
     // ------------------------------------------------- liquid glass + background
 
-    /** Glass panel: translucent body, lighter upper half, bright top rim, soft lower rim, optional specular glint. */
+    /** Glass panel: smooth vertical sheen (no hard seam), bright top rim fading downwards, optional glint. */
     private void glass(Canvas c, RectF r, float rad, int a, boolean glint) {
+        gm.setScale(1f, Math.max(1f, r.height()));
+        gm.postTranslate(0f, r.top);
+        bodyShader.setLocalMatrix(gm);
+        rimShader.setLocalMatrix(gm);
+
         p.setStyle(Paint.Style.FILL);
-        p.setColor((a << 24) | 0x00FFFFFF);
+        p.setShader(bodyShader);
+        p.setAlpha(Math.min(255, a * 2));
         c.drawRoundRect(r, rad, rad, p);
-        c.save();
-        c.clipRect(r.left, r.top, r.right, r.top + r.height() * 0.5f);
-        p.setColor(((a / 2 + 6) << 24) | 0x00FFFFFF);
-        c.drawRoundRect(r, rad, rad, p);
-        c.restore();
 
         rg.set(r);
         rg.inset(0.75f * dp, 0.75f * dp);
         p.setStyle(Paint.Style.STROKE);
         p.setStrokeWidth(1.5f * dp);
-        c.save();
-        c.clipRect(r.left, r.top, r.right, r.top + r.height() * 0.4f);
-        p.setColor(0x99FFFFFF);
+        p.setShader(rimShader);
+        p.setAlpha(255);
         c.drawRoundRect(rg, rad, rad, p);
-        c.restore();
-        c.save();
-        c.clipRect(r.left, r.top + r.height() * 0.4f, r.right, r.bottom);
-        p.setColor(0x38FFFFFF);
-        c.drawRoundRect(rg, rad, rad, p);
-        c.restore();
+        p.setShader(null);
         p.setStyle(Paint.Style.FILL);
 
         if (glint) {
@@ -944,40 +935,6 @@ final class HomeView extends View {
         }
     }
 
-    /** Slowly drifting colour blobs whose hues keep cycling. Skipped when a wallpaper is set or animation is off. */
-    private void drawBackground(Canvas c) {
-        if (wall != null || !bgAnim) return;
-        double t = System.nanoTime() / 1e9;
-        float R = 0.6f * Math.max(W, H);
-        for (int i = 0; i < 3; i++) {
-            double h = (t * 5.0 + i * 120.0 + 35.0 * Math.sin(t * 0.1 + i)) % 360.0;
-            if (h < 0) h += 360.0;
-            int hi = (int) h;
-            if (hi != bgHue[i]) {
-                bgHue[i] = hi;
-                bgHsv[0] = hi;
-                bgHsv[1] = 0.75f;
-                bgHsv[2] = 0.6f;
-                int col = Color.HSVToColor(bgHsv) & 0x00FFFFFF;
-                bgPaint[i].setShader(new RadialGradient(0, 0, R, new int[] { 0x88000000 | col, col }, null, Shader.TileMode.CLAMP));
-            }
-            float x, y;
-            if (i == 0) {
-                x = W * (0.25f + 0.2f * (float) Math.sin(t * 0.11));
-                y = H * (0.3f + 0.2f * (float) Math.cos(t * 0.13));
-            } else if (i == 1) {
-                x = W * (0.75f + 0.2f * (float) Math.cos(t * 0.09));
-                y = H * (0.4f + 0.25f * (float) Math.sin(t * 0.12 + 1));
-            } else {
-                x = W * (0.5f + 0.3f * (float) Math.sin(t * 0.08 + 2));
-                y = H * (0.85f + 0.15f * (float) Math.cos(t * 0.1));
-            }
-            c.save();
-            c.translate(x, y);
-            c.drawCircle(0, 0, R, bgPaint[i]);
-            c.restore();
-        }
-    }
 
     // ------------------------------------------------------------- top-bar icons
 
@@ -1027,15 +984,27 @@ final class HomeView extends View {
     }
 
     private void iconGear(Canvas c, float cx, float cy, float u) {
-        stroke(2.2f * dp, 0xF2FFFFFF);
-        c.drawCircle(cx, cy, 0.3f * u, p);
-        c.drawCircle(cx, cy, 0.1f * u, p);
-        stroke(3.2f * dp, 0xF2FFFFFF);
+        float rin = 0.38f * u, rout = 0.54f * u;
+        double base = Math.toRadians(12), tip = Math.toRadians(7.5);
+        path.reset();
+        path.setFillType(Path.FillType.EVEN_ODD);
+        boolean first = true;
         for (int i = 0; i < 8; i++) {
-            double a = i * Math.PI / 4;
-            float ca = (float) Math.cos(a), sa = (float) Math.sin(a);
-            c.drawLine(cx + ca * 0.4f * u, cy + sa * 0.4f * u, cx + ca * 0.52f * u, cy + sa * 0.52f * u, p);
+            double th = i * Math.PI / 4;
+            double[] ang = { th - base, th - tip, th + tip, th + base };
+            float[] rad = { rin, rout, rout, rin };
+            for (int k = 0; k < 4; k++) {
+                float x = cx + (float) Math.cos(ang[k]) * rad[k];
+                float y = cy + (float) Math.sin(ang[k]) * rad[k];
+                if (first) { path.moveTo(x, y); first = false; } else path.lineTo(x, y);
+            }
         }
+        path.close();
+        path.addCircle(cx, cy, 0.17f * u, Path.Direction.CCW);
+        p.setStyle(Paint.Style.FILL);
+        p.setColor(0xF2FFFFFF);
+        c.drawPath(path, p);
+        path.setFillType(Path.FillType.WINDING);
     }
 
     private void drawGlow(Canvas c) {
