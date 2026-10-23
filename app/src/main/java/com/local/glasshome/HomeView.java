@@ -249,15 +249,16 @@ final class HomeView extends View {
         W = getWidth();
         H = getHeight();
         mx = 64 * dp;
-        slotW = 200 * dp;
-        slotH = slotW * 9f / 16f;
         padD = 24 * dp;
         gapD = 24 * dp;
+        // dock and grid share one tile size and the same four columns, edge to edge between the margins
+        tileW = (W - 2 * mx - (COLS - 1) * gapD) / COLS;
+        tileH = tileW * 9f / 16f;
+        cellW = tileW + gapD;
+        slotW = tileW;
+        slotH = tileH;
         bandH = slotH + 2 * padD;
         dockTop = H - 56 * dp - bandH;
-        cellW = (W - 2 * mx) / COLS;
-        tileW = cellW - 24 * dp;
-        tileH = tileW * 9f / 16f;
         rowH = tileH + 64 * dp;
         gridTop = H + 24 * dp;
         pillH = 48 * dp;
@@ -270,7 +271,7 @@ final class HomeView extends View {
     }
 
     private void slot(int i, RectF r) {
-        float l = mx + padD + i * (slotW + gapD);
+        float l = mx + i * cellW;
         r.set(l, dockTop + padD, l + slotW, dockTop + padD + slotH);
     }
 
@@ -292,9 +293,9 @@ final class HomeView extends View {
         if (zone == ZT) {
             tmp.set(pill[topIdx]); infl = 4 * dp; rad = pillH / 2 + infl;
         } else if (zone == ZD && !dock.isEmpty()) {
-            slot(dockIdx, tmp); infl = 10 * dp; rad = 18 * dp + infl;
+            slot(dockIdx, tmp); infl = 12 * dp; rad = 18 * dp + infl;
         } else if (zone == ZG && !grid.isEmpty()) {
-            gridRect(gridIdx, tmp); infl = 14 * dp; rad = 18 * dp + infl;
+            gridRect(gridIdx, tmp); infl = 12 * dp; rad = 18 * dp + infl;
         } else {
             tmp.set(pill[0]); infl = 4 * dp; rad = pillH / 2 + infl;
         }
@@ -711,8 +712,7 @@ final class HomeView extends View {
 
         // dock band
         if (!dock.isEmpty()) {
-            float bw = dock.size() * slotW + (dock.size() - 1) * gapD + 2 * padD;
-            rf.set(mx, dockTop, mx + bw, dockTop + bandH);
+            rf.set(mx - padD, dockTop, mx + (dock.size() - 1) * cellW + tileW + padD, dockTop + bandH);
             glass(c, rf, 36 * dp, 0x1E, false);
         }
         // pill backgrounds
