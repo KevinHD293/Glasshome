@@ -46,6 +46,7 @@ public class MainActivity extends Activity {
     private static final String K_WLAT = "w_lat";
     private static final String K_WLON = "w_lon";
     private static final String K_WDATA = "w_data";
+    private static final String K_WNAME = "w_name";
     private static final String K_LAST = "last";
     private static final String K_ASKED = "asked_location";
 
@@ -78,6 +79,7 @@ public class MainActivity extends Activity {
         setContentView(view);
         weather = Weather.decode(prefs.getString(K_WDATA, ""));
         view.setWeather(weather);
+        view.setPlace(prefs.getString(K_WNAME, "Buôn Ma Thuột"));
         requestLocationOnce();
         IntentFilter pf = new IntentFilter();
         pf.addAction(Intent.ACTION_PACKAGE_ADDED);
@@ -268,9 +270,9 @@ public class MainActivity extends Activity {
                     Toast.makeText(this, "Không tìm thấy thành phố: " + name, Toast.LENGTH_LONG).show();
                     return;
                 }
-                prefs.edit().putString(K_WLAT, r[0]).putString(K_WLON, r[1]).remove(K_WDATA).apply();
+                prefs.edit().putString(K_WLAT, r[0]).putString(K_WLON, r[1]).putString(K_WNAME, r[2]).remove(K_WDATA).apply();
                 weather = null;
-                if (view != null) view.setWeather(null);
+                if (view != null) { view.setWeather(null); view.setPlace(r[2]); }
                 Toast.makeText(this, "Thời tiết: " + r[2], Toast.LENGTH_SHORT).show();
                 refreshWeather(true);
             });

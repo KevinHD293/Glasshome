@@ -46,7 +46,7 @@ final class HomeView extends View {
     private static final float[] FOG_Y = { -0.45f, -0.15f, 0.15f, 0.45f };
     private static final float[] FOG_W = { 0.7f, 0.9f, 0.9f, 0.6f };
     private static final int M_MOVE = 0, M_DEL = 1, M_NOTE = 2, M_CLOSE = 3;   // app menu rows
-    private static final int P_ARR = 0, P_WIFI = 1, P_SET = 2, NP = 3;   // top-bar icon buttons
+    private static final int P_WIFI = 0, P_ARR = 1, P_SET = 2, NP = 3;   // top-bar icon buttons
     private static final int P_IN = -1;                                  // Inputs button removed
 
     private static final class Spring {
@@ -94,6 +94,7 @@ final class HomeView extends View {
     private Typeface light, regular;
     private Bitmap wall;
     private Weather weather;
+    private String place = "";
     private float clockW = 0;
     private final RectF rg = new RectF();
     // unit-height vertical gradients (scaled to each panel): smooth sheen and rim, no hard light/dark seam
@@ -106,13 +107,13 @@ final class HomeView extends View {
     private float W, H, mx, dockTop, bandH, slotW, slotH, padD, gapD;
     private float cellW, tileW, tileH, rowH, gridTop, pillH;
     private final RectF[] pill = { new RectF(), new RectF(), new RectF() };
-    private final String[] pillText = { "Sắp xếp", "Wi-Fi", "Settings" };
+    private final String[] pillText = { "Wi-Fi", "Sắp xếp", "Settings" };
 
     private int glowCur = 0xFF8E8E93, glowTgt = 0xFF8E8E93, shaderColor = 0;
     private RadialGradient glowShader;
 
     private long lastNs = 0, minuteKey = -1;
-    private String timeStr = "", dateStr = "", greetStr = "";
+    private String timeStr = "", dateStr = "", greetStr = "", lunarStr = "";
     private final SimpleDateFormat timeFmt, dateFmt;
 
     HomeView(Context ctx) {
@@ -239,6 +240,8 @@ final class HomeView extends View {
 
     void setWeather(Weather w) { weather = w; invalidate(); }
 
+    void setPlace(String name) { place = name == null ? "" : name; invalidate(); }
+
     void tick() { invalidate(); }
 
     // ---------------------------------------------------------------- layout
@@ -299,9 +302,9 @@ final class HomeView extends View {
         if (zone == ZT) {
             tmp.set(pill[topIdx]); infl = 4 * dp; rad = pillH / 2 + infl;
         } else if (zone == ZD && !dock.isEmpty()) {
-            slot(dockIdx, tmp); infl = 12 * dp; rad = 18 * dp + infl;
+            slot(dockIdx, tmp); infl = 7 * dp; rad = 18 * dp + infl;
         } else if (zone == ZG && !grid.isEmpty()) {
-            gridRect(gridIdx, tmp); infl = 12 * dp; rad = 18 * dp + infl;
+            gridRect(gridIdx, tmp); infl = 7 * dp; rad = 18 * dp + infl;
         } else {
             tmp.set(pill[0]); infl = 4 * dp; rad = pillH / 2 + infl;
         }
@@ -716,25 +719,29 @@ final class HomeView extends View {
         drawHeader(c);
         drawGlow(c);
 
-        // dock band
-        if (!dock.isEmpty()) {
-            rf.set(mx - padD, dockTop, mx + (dock.size() - 1) * cellW + tileW + padD, dockTop + bandH);
-            glass(c, rf, 36 * dp, 0x1E, false);
-        }
-        // pill backgrounds
-        for (int i = 0; i < NP; i++) {
-            glass(c, pill[i], pillH / 2, 0x26, false);
-        }
+        // one glass band behind the three top icons, like the dock band
+        rf.set(pill[0].left - 14 * dp, pill[0].top - 8 * dp, pill[NP - 1].right + 14 * dp, pill[0].bottom + 8 * dp);
+        glass(c, rf, rf.height() / 2f, 0x1E, false);
 
         // the single glass highlight
         // liquid stretch: the highlight elongates a little along its direction of travel
         float ex = Math.min(0.14f, Math.abs(hx.vel) / 14000f) * hw.v;
         float ey = Math.min(0.14f, Math.abs(hy.vel) / 14000f) * hh.v;
         rf.set(hx.v - ex / 2f, hy.v - ey / 2f, hx.v + hw.v + ex / 2f, hy.v + hh.v + ey / 2f);
-        glass(c, rf, hr.v, 0x34, true);
-        p.setStyle(Paint.Style.FILL);
-        p.setColor((glowCur & 0x00FFFFFF) | 0x1C000000);   // faint tint from the focused app's colour
-        c.drawRoundRect(rf, hr.v, hr.v, p);
+        if (zone == ZT) {
+            glass(c, rf, hr.v, 0x34, true);   // the top icons keep the glass highlight
+        } else {
+            // selected tile: an outline in the app's own colour (no fill) with a soft outer glow
+            int col = glowCur & 0x00FFFFFF;
+            p.setStyle(Paint.Style.STROKE);
+            p.setStrokeWidth(7 * dp);
+            p.setColor(0x40000000 | col);
+            c.drawRoundRect(rf, hr.v, hr.v, p);
+            p.setStrokeWidth(3 * dp);
+            p.setColor(0xFF000000 | col);
+            c.drawRoundRect(rf, hr.v, hr.v, p);
+            p.setStyle(Paint.Style.FILL);
+        }
 
         drawPillText(c);
         drawDock(c);
@@ -764,8 +771,11 @@ final class HomeView extends View {
         Date d = new Date();
         timeStr = timeFmt.format(d);
         String ds = dateFmt.format(d);
-        dateStr = ds.length() > 0 ? Character.toUpperCase(ds.charAt(0)) + ds.substring(1) : ds;
-        int h = Calendar.getInstance().get(Calendar.HOUR_OF_DAY);
+        dateStr = ds.toUpperCase(Locale.getDefault());
+        Calendar cal = Calendar.getInstance();
+        int h = cal.get(Calendar.HOUR_OF_DAY);
+        lunarStr = Lunar.describe(cal.get(Calendar.YEAR), cal.get(Calendar.MONTH) + 1, cal.get(Calendar.DAY_OF_MONTH))
+                .toUpperCase(Locale.getDefault());
         greetStr = h < 5 ? "Chào buổi tối" : h < 12 ? "Chào buổi sáng" : h < 14 ? "Chào buổi trưa"
                 : h < 18 ? "Chào buổi chiều" : "Chào buổi tối";
     }
@@ -773,39 +783,46 @@ final class HomeView extends View {
     private void drawHeader(Canvas c) {
         text.setTextAlign(Paint.Align.LEFT);
         text.setTypeface(regular);
-        text.setTextSize(26 * dp);
+        text.setTextSize(13 * dp);
+        text.setLetterSpacing(0.28f);
         text.setColor(0xCCFFFFFF);
-        c.drawText(greetStr, mx, 76 * dp, text);
+        c.drawText("XIN CHÀO", mx, 46 * dp, text);
+        text.setLetterSpacing(0f);
+
         text.setTypeface(light);
-        text.setTextSize(78 * dp);
+        text.setTextSize(54 * dp);
         text.setColor(Color.WHITE);
-        c.drawText(timeStr, mx, 156 * dp, text);
-        clockW = text.measureText(timeStr);
-        text.setTypeface(regular);
-        text.setTextSize(26 * dp);
-        text.setColor(0xAAFFFFFF);
-        c.drawText(dateStr, mx, 192 * dp, text);
-        drawWeather(c);
+        float base = 98 * dp;
+        c.drawText(timeStr, mx, base, text);
+        float cw = text.measureText(timeStr);
+
+        float dx = mx + cw + 20 * dp;                 // thin divider between the clock and the info block
+        p.setStyle(Paint.Style.FILL);
+        p.setColor(0x55FFFFFF);
+        c.drawRect(dx, base - 34 * dp, dx + 1.5f * dp, base, p);
+        drawInfo(c, dx + 20 * dp, base);
     }
 
     // --------------------------------------------------------------- weather
 
-    private void drawWeather(Canvas c) {
-        Weather w = weather;
-        if (w == null) return;
-        float x = mx + clockW + 48 * dp;
-        drawIcon(c, w, x + 26 * dp, 128 * dp, 52 * dp);
-        text.setTextAlign(Paint.Align.LEFT);
-        text.setTypeface(light);
-        text.setTextSize(42 * dp);
-        text.setColor(Color.WHITE);
-        c.drawText(Math.round(w.temp) + "°", x + 72 * dp, 140 * dp, text);
+    /** Three compact lines: weather, date, lunar date. */
+    private void drawInfo(Canvas c, float bx, float base) {
+        float y1 = base - 44 * dp, y2 = base - 26 * dp, y3 = base - 8 * dp;
         text.setTypeface(regular);
-        text.setTextSize(18 * dp);
+        Weather w = weather;
+        if (w != null) {
+            drawIcon(c, w, bx + 12 * dp, y1 - 6 * dp, 26 * dp);
+            text.setTextSize(17 * dp);
+            text.setColor(Color.WHITE);
+            String l1 = Math.round(w.temp) + "°C " + w.text() + (place.length() > 0 ? " · " + place : "");
+            c.drawText(l1, bx + 32 * dp, y1, text);
+        }
+        text.setTextSize(12.5f * dp);
+        text.setLetterSpacing(0.14f);
         text.setColor(0xCCFFFFFF);
-        c.drawText(w.text(), x + 72 * dp, 164 * dp, text);
-        text.setColor(0x99FFFFFF);
-        c.drawText("Cao " + Math.round(w.hi) + "°  Thấp " + Math.round(w.lo) + "°", x + 72 * dp, 188 * dp, text);
+        c.drawText(dateStr, bx, y2, text);
+        c.drawText(lunarStr, bx, y3, text);
+        text.setLetterSpacing(0f);
     }
 
     private void stroke(float width, int color) {
@@ -959,11 +976,11 @@ final class HomeView extends View {
     private void iconGrid(Canvas c, float cx, float cy, float u) {
         p.setStyle(Paint.Style.FILL);
         p.setColor(0xF2FFFFFF);
-        float h = 0.21f * u, o = 0.26f * u;
-        for (int sx = -1; sx <= 1; sx += 2) {
-            for (int sy = -1; sy <= 1; sy += 2) {
-                rg.set(cx + sx * o - h, cy + sy * o - h, cx + sx * o + h, cy + sy * o + h);
-                c.drawRoundRect(rg, 0.08f * u, 0.08f * u, p);
+        float pitch = 0.3f * u, h = 0.1f * u;
+        for (int ix = -1; ix <= 1; ix++) {
+            for (int iy = -1; iy <= 1; iy++) {
+                rg.set(cx + ix * pitch - h, cy + iy * pitch - h, cx + ix * pitch + h, cy + iy * pitch + h);
+                c.drawRoundRect(rg, 0.04f * u, 0.04f * u, p);
             }
         }
     }
@@ -979,7 +996,7 @@ final class HomeView extends View {
 
     private void iconWifi(Canvas c, float cx, float cy, float u) {
         float oy = cy + 0.32f * u;
-        stroke(2.4f * dp, 0xF2FFFFFF);
+        stroke(2.8f * dp, 0xF2FFFFFF);
         float[] rad = { 0.36f * u, 0.62f * u, 0.88f * u };
         for (int i = 0; i < 3; i++) {
             rg.set(cx - rad[i], oy - rad[i], cx + rad[i], oy + rad[i]);
@@ -990,8 +1007,8 @@ final class HomeView extends View {
     }
 
     private void iconGear(Canvas c, float cx, float cy, float u) {
-        float rin = 0.38f * u, rout = 0.54f * u;
-        double base = Math.toRadians(12), tip = Math.toRadians(7.5);
+        float rin = 0.36f * u, rout = 0.52f * u;
+        double base = Math.toRadians(14), tip = Math.toRadians(9);
         path.reset();
         path.setFillType(Path.FillType.EVEN_ODD);
         boolean first = true;
@@ -1006,7 +1023,7 @@ final class HomeView extends View {
             }
         }
         path.close();
-        path.addCircle(cx, cy, 0.17f * u, Path.Direction.CCW);
+        path.addCircle(cx, cy, 0.16f * u, Path.Direction.CCW);
         p.setStyle(Paint.Style.FILL);
         p.setColor(0xF2FFFFFF);
         c.drawPath(path, p);
