@@ -46,7 +46,7 @@ final class HomeView extends View {
     private static final float[] FOG_Y = { -0.45f, -0.15f, 0.15f, 0.45f };
     private static final float[] FOG_W = { 0.7f, 0.9f, 0.9f, 0.6f };
     private static final int M_MOVE = 0, M_DEL = 1, M_NOTE = 2, M_CLOSE = 3;   // app menu rows
-    private static final int P_WIFI = 0, P_ARR = 1, P_SET = 2, NP = 3;   // top-bar icon buttons
+    private static final int P_ARR = 0, P_WIFI = 1, P_SET = 2, NP = 3;   // top-bar icon buttons
     private static final int P_IN = -1;                                  // Inputs button removed
 
     private static final class Spring {
@@ -93,6 +93,10 @@ final class HomeView extends View {
     private final RectF rf = new RectF(), tmp = new RectF();
     private Typeface light, regular;
     private Bitmap wall;
+    private Bitmap barBlur;
+    private final Rect wallSrc = new Rect(), tmpSrc = new Rect();
+    private final RectF wallDst = new RectF();
+    private final Paint blurPaint = new Paint(Paint.FILTER_BITMAP_FLAG | Paint.ANTI_ALIAS_FLAG);
     private Weather weather;
     private String place = "";
     private float clockW = 0;
@@ -107,7 +111,7 @@ final class HomeView extends View {
     private float W, H, mx, dockTop, bandH, slotW, slotH, padD, gapD;
     private float cellW, tileW, tileH, rowH, gridTop, pillH;
     private final RectF[] pill = { new RectF(), new RectF(), new RectF() };
-    private final String[] pillText = { "Wi-Fi", "Sắp xếp", "Settings" };
+    private final String[] pillText = { "Sắp xếp", "Wi-Fi", "Settings" };
 
     private int glowCur = 0xFF8E8E93, glowTgt = 0xFF8E8E93, shaderColor = 0;
     private RadialGradient glowShader;
@@ -133,11 +137,11 @@ final class HomeView extends View {
         try {
             InputStream in = ctx.getAssets().open("wallpaper.jpg");
             BitmapFactory.Options o = new BitmapFactory.Options();
-            o.inSampleSize = 2;
+            o.inSampleSize = 1;
             wall = BitmapFactory.decodeStream(in, null, o);
             in.close();
         } catch (Exception ignored) { wall = null; }
-        wallPaint.setAlpha(120);
+        wallPaint.setAlpha(255);
 
         boolean h24 = android.text.format.DateFormat.is24HourFormat(ctx);
         timeFmt = new SimpleDateFormat(h24 ? "HH:mm" : "h:mm", Locale.getDefault());
@@ -277,6 +281,7 @@ final class HomeView extends View {
             pill[i].set(right - pillH, 40 * dp, right, 40 * dp + pillH);
             right -= pillH + 16 * dp;
         }
+        buildBarBlur();
     }
 
     private void slot(int i, RectF r) {
@@ -302,9 +307,9 @@ final class HomeView extends View {
         if (zone == ZT) {
             tmp.set(pill[topIdx]); infl = 4 * dp; rad = pillH / 2 + infl;
         } else if (zone == ZD && !dock.isEmpty()) {
-            slot(dockIdx, tmp); infl = 7 * dp; rad = 18 * dp + infl;
+            slot(dockIdx, tmp); infl = 0; rad = 18 * dp;
         } else if (zone == ZG && !grid.isEmpty()) {
-            gridRect(gridIdx, tmp); infl = 7 * dp; rad = 18 * dp + infl;
+            gridRect(gridIdx, tmp); infl = 0; rad = 18 * dp;
         } else {
             tmp.set(pill[0]); infl = 4 * dp; rad = pillH / 2 + infl;
         }
@@ -719,27 +724,46 @@ final class HomeView extends View {
         drawHeader(c);
         drawGlow(c);
 
-        // one glass band behind the three top icons, like the dock band
-        rf.set(pill[0].left - 14 * dp, pill[0].top - 8 * dp, pill[NP - 1].right + 14 * dp, pill[0].bottom + 8 * dp);
-        glass(c, rf, rf.height() / 2f, 0x1E, false);
+        // one band behind the three top icons: frosted (blurred wallpaper) + glass sheen
+        bandRect(rf);
+        float bandRad = rf.height() / 2f;
+        if (barBlur != null) {
+            c.save();
+            path.reset();
+            path.addRoundRect(rf, bandRad, bandRad, Path.Direction.CW);
+            c.clipPath(path);
+            c.drawBitmap(barBlur, null, rf, blurPaint);
+            c.restore();
+            p.setStyle(Paint.Style.FILL);
+            p.setColor(0x26FFFFFF);               // frost tint
+            c.drawRoundRect(rf, bandRad, bandRad, p);
+        }
+        glass(c, rf, bandRad, 0x1E, false);
 
         // the single glass highlight
         // liquid stretch: the highlight elongates a little along its direction of travel
         float ex = Math.min(0.14f, Math.abs(hx.vel) / 14000f) * hw.v;
         float ey = Math.min(0.14f, Math.abs(hy.vel) / 14000f) * hh.v;
-        rf.set(hx.v - ex / 2f, hy.v - ey / 2f, hx.v + hw.v + ex / 2f, hy.v + hh.v + ey / 2f);
         if (zone == ZT) {
+            rf.set(hx.v - ex / 2f, hy.v - ey / 2f, hx.v + hw.v + ex / 2f, hy.v + hh.v + ey / 2f);
             glass(c, rf, hr.v, 0x34, true);   // the top icons keep the glass highlight
         } else {
-            // selected tile: an outline in the app's own colour (no fill) with a soft outer glow
+            // Selected tile: an even outline in the app's colour, concentric with the (scaled) tile, so the gap
+            // and the corner radius stay proportional to the tile on every side.
+            float sc = held != null ? HELD : pop.v;
+            float sw = 3 * dp, d = 3 * dp + sw / 2f;
+            float cx = hx.v + hw.v / 2f, cy = hy.v + hh.v / 2f;
+            float w2 = (hw.v * sc + ex) / 2f + d, h2 = (hh.v * sc + ey) / 2f + d;
+            rf.set(cx - w2, cy - h2, cx + w2, cy + h2);
+            float rad = 18 * dp * sc + d;
             int col = glowCur & 0x00FFFFFF;
             p.setStyle(Paint.Style.STROKE);
-            p.setStrokeWidth(7 * dp);
-            p.setColor(0x40000000 | col);
-            c.drawRoundRect(rf, hr.v, hr.v, p);
-            p.setStrokeWidth(3 * dp);
+            p.setStrokeWidth(sw + 4 * dp);      // soft outer glow
+            p.setColor(0x38000000 | col);
+            c.drawRoundRect(rf, rad, rad, p);
+            p.setStrokeWidth(sw);
             p.setColor(0xFF000000 | col);
-            c.drawRoundRect(rf, hr.v, hr.v, p);
+            c.drawRoundRect(rf, rad, rad, p);
             p.setStyle(Paint.Style.FILL);
         }
 
@@ -755,13 +779,44 @@ final class HomeView extends View {
         if (anim) postInvalidateOnAnimation(); else lastNs = 0;
     }
 
+    /** The part of the wallpaper bitmap that sits behind a screen rectangle (centre-crop mapping). */
+    private void wallSource(RectF scr, Rect out) {
+        float bw = wall.getWidth(), bh = wall.getHeight();
+        float sc = Math.max(W / bw, H / bh);
+        float offX = (bw - W / sc) / 2f, offY = (bh - H / sc) / 2f;
+        out.set((int) (offX + scr.left / sc), (int) (offY + scr.top / sc),
+                (int) (offX + scr.right / sc), (int) (offY + scr.bottom / sc));
+    }
+
     private void drawWall(Canvas c) {
         if (wall == null) return;
-        float bw = wall.getWidth(), bh = wall.getHeight();
-        float s = Math.max(W / bw, H / bh);
-        float sw = W / s, sh = H / s;
-        Rect src = new Rect((int) ((bw - sw) / 2), (int) ((bh - sh) / 2), (int) ((bw + sw) / 2), (int) ((bh + sh) / 2));
-        c.drawBitmap(wall, src, new RectF(0, 0, W, H), wallPaint);
+        wallDst.set(0, 0, W, H);
+        wallSource(wallDst, wallSrc);
+        c.drawBitmap(wall, wallSrc, wallDst, wallPaint);
+    }
+
+    private void bandRect(RectF out) {
+        out.set(pill[0].left - 14 * dp, pill[0].top - 8 * dp, pill[NP - 1].right + 14 * dp, pill[0].bottom + 8 * dp);
+    }
+
+    /** Frosted look for the top bar: a blurred copy of the wallpaper behind it, made once per layout (no per-frame blur). */
+    private void buildBarBlur() {
+        if (barBlur != null) { barBlur.recycle(); barBlur = null; }
+        if (wall == null || W == 0) return;
+        try {
+            bandRect(rg);
+            wallSource(rg, tmpSrc);
+            tmpSrc.intersect(0, 0, wall.getWidth(), wall.getHeight());
+            if (tmpSrc.width() < 4 || tmpSrc.height() < 4) return;
+            Bitmap crop = Bitmap.createBitmap(wall, tmpSrc.left, tmpSrc.top, tmpSrc.width(), tmpSrc.height());
+            Bitmap small = Bitmap.createScaledBitmap(crop, Math.max(2, crop.getWidth() / 14), Math.max(2, crop.getHeight() / 14), true);
+            Bitmap tiny = Bitmap.createScaledBitmap(small, Math.max(2, small.getWidth() / 2), Math.max(2, small.getHeight() / 2), true);
+            if (crop != wall) crop.recycle();
+            if (small != tiny) small.recycle();
+            barBlur = tiny;
+        } catch (Throwable t) {
+            barBlur = null;
+        }
     }
 
     private void refreshClock() {
@@ -807,17 +862,17 @@ final class HomeView extends View {
 
     /** Three compact lines: weather, date, lunar date. */
     private void drawInfo(Canvas c, float bx, float base) {
-        float y1 = base - 44 * dp, y2 = base - 26 * dp, y3 = base - 8 * dp;
+        float y1 = base - 48 * dp, y2 = base - 24 * dp, y3 = base;
         text.setTypeface(regular);
         Weather w = weather;
         if (w != null) {
-            drawIcon(c, w, bx + 12 * dp, y1 - 6 * dp, 26 * dp);
-            text.setTextSize(17 * dp);
+            drawIcon(c, w, bx + 15 * dp, y1 - 7 * dp, 30 * dp);
+            text.setTextSize(20 * dp);
             text.setColor(Color.WHITE);
             String l1 = Math.round(w.temp) + "°C " + w.text() + (place.length() > 0 ? " · " + place : "");
-            c.drawText(l1, bx + 32 * dp, y1, text);
+            c.drawText(l1, bx + 38 * dp, y1, text);
         }
-        text.setTextSize(12.5f * dp);
+        text.setTextSize(14.5f * dp);
         text.setLetterSpacing(0.14f);
         text.setColor(0xCCFFFFFF);
         c.drawText(dateStr, bx, y2, text);
