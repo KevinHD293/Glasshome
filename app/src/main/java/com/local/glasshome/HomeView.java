@@ -124,10 +124,9 @@ final class HomeView extends View {
         pop.veps = 0.02f;
         pop.snap(POP);
 
-        try { light = Typeface.createFromAsset(ctx.getAssets(), "fonts/Outfit-Light.ttf"); }
-        catch (Exception e) { light = Typeface.create("sans-serif-light", Typeface.NORMAL); }
-        try { regular = Typeface.createFromAsset(ctx.getAssets(), "fonts/Outfit-Regular.ttf"); }
-        catch (Exception e) { regular = Typeface.create("sans-serif", Typeface.NORMAL); }
+        // Fonts in app/src/main/assets/fonts/: the first file that exists wins, else the system font.
+        light = font(ctx, "sans-serif-light", "fonts/MyriadPro-Light.otf", "fonts/Outfit-Light.ttf");
+        regular = font(ctx, "sans-serif", "fonts/MyriadPro-Regular.otf", "fonts/Outfit-Regular.ttf");
 
         // Optional wallpaper: put wallpaper.jpg in app/src/main/assets/ (shown dimmed). Default is pure black.
         try {
@@ -143,6 +142,13 @@ final class HomeView extends View {
         timeFmt = new SimpleDateFormat(h24 ? "HH:mm" : "h:mm", Locale.getDefault());
         dateFmt = new SimpleDateFormat("EEEE, d MMMM", Locale.getDefault());
         pillText[P_WIFI] = act.wifiLabel();
+    }
+
+    private static Typeface font(Context ctx, String systemFamily, String... files) {
+        for (String f : files) {
+            try { return Typeface.createFromAsset(ctx.getAssets(), f); } catch (Exception ignored) { }
+        }
+        return Typeface.create(systemFamily, Typeface.NORMAL);
     }
 
     // ------------------------------------------------------------------ data
