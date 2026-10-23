@@ -44,7 +44,8 @@ final class HomeView extends View {
     private static final float[] FOG_Y = { -0.45f, -0.15f, 0.15f, 0.45f };
     private static final float[] FOG_W = { 0.7f, 0.9f, 0.9f, 0.6f };
     private static final int M_MOVE = 0, M_DEL = 1, M_NOTE = 2, M_CLOSE = 3;   // app menu rows
-    private static final int P_ARR = 0, P_IN = 1, P_WIFI = 2, P_SET = 3, NP = 4;   // top-bar pills
+    private static final int P_ARR = 0, P_WIFI = 1, P_SET = 2, NP = 3;   // top-bar icon buttons
+    private static final int P_IN = -1;                                  // Inputs button removed
 
     private static final class Spring {
         float v, t, vel, k = 520f, c = 34f, eps = 0.3f, veps = 2f;
@@ -92,11 +93,16 @@ final class HomeView extends View {
     private Bitmap wall;
     private Weather weather;
     private float clockW = 0;
+    private final RectF rg = new RectF();
+    private boolean bgAnim = true;
+    private final Paint[] bgPaint = { new Paint(Paint.ANTI_ALIAS_FLAG), new Paint(Paint.ANTI_ALIAS_FLAG), new Paint(Paint.ANTI_ALIAS_FLAG) };
+    private final int[] bgHue = { -1, -1, -1 };
+    private final float[] bgHsv = new float[3];
 
     private float W, H, mx, dockTop, bandH, slotW, slotH, padD, gapD;
     private float cellW, tileW, tileH, rowH, gridTop, pillH;
-    private final RectF[] pill = { new RectF(), new RectF(), new RectF(), new RectF() };
-    private final String[] pillText = { "Sắp xếp", "Inputs", "Wi-Fi", "Settings" };
+    private final RectF[] pill = { new RectF(), new RectF(), new RectF() };
+    private final String[] pillText = { "Sắp xếp", "Wi-Fi", "Settings" };
 
     private int glowCur = 0xFF8E8E93, glowTgt = 0xFF8E8E93, shaderColor = 0;
     private RadialGradient glowShader;
@@ -223,6 +229,8 @@ final class HomeView extends View {
 
     void setWeather(Weather w) { weather = w; invalidate(); }
 
+    void setBgAnim(boolean on) { bgAnim = on; invalidate(); }
+
     void tick() { invalidate(); }
 
     // ---------------------------------------------------------------- layout
@@ -250,15 +258,13 @@ final class HomeView extends View {
         tileH = tileW * 9f / 16f;
         rowH = tileH + 64 * dp;
         gridTop = H + 24 * dp;
-        pillH = 44 * dp;
+        pillH = 48 * dp;
+        bgHue[0] = bgHue[1] = bgHue[2] = -1;   // rebuild background gradients for the new size
 
-        text.setTypeface(regular);
-        text.setTextSize(18 * dp);
         float right = W - mx;
         for (int i = NP - 1; i >= 0; i--) {
-            float w = text.measureText(pillText[i]) + 40 * dp;
-            pill[i].set(right - w, 40 * dp, right, 40 * dp + pillH);
-            right -= w + 14 * dp;
+            pill[i].set(right - pillH, 40 * dp, right, 40 * dp + pillH);
+            right -= pillH + 16 * dp;
         }
     }
 
@@ -694,6 +700,7 @@ final class HomeView extends View {
         c.drawColor(Color.BLACK);
         if (W == 0) return;
         drawWall(c);
+        drawBackground(c);
         refreshClock();
 
         c.save();
@@ -706,27 +713,22 @@ final class HomeView extends View {
         if (!dock.isEmpty()) {
             float bw = dock.size() * slotW + (dock.size() - 1) * gapD + 2 * padD;
             rf.set(mx, dockTop, mx + bw, dockTop + bandH);
-            p.setStyle(Paint.Style.FILL);
-            p.setColor(0x24FFFFFF);
-            c.drawRoundRect(rf, 36 * dp, 36 * dp, p);
+            glass(c, rf, 36 * dp, 0x1E, false);
         }
         // pill backgrounds
         for (int i = 0; i < NP; i++) {
-            p.setStyle(Paint.Style.FILL);
-            p.setColor(0x30FFFFFF);
-            c.drawRoundRect(pill[i], pillH / 2, pillH / 2, p);
+            glass(c, pill[i], pillH / 2, 0x26, false);
         }
 
         // the single glass highlight
-        rf.set(hx.v, hy.v, hx.v + hw.v, hy.v + hh.v);
+        // liquid stretch: the highlight elongates a little along its direction of travel
+        float ex = Math.min(0.14f, Math.abs(hx.vel) / 14000f) * hw.v;
+        float ey = Math.min(0.14f, Math.abs(hy.vel) / 14000f) * hh.v;
+        rf.set(hx.v - ex / 2f, hy.v - ey / 2f, hx.v + hw.v + ex / 2f, hy.v + hh.v + ey / 2f);
+        glass(c, rf, hr.v, 0x34, true);
         p.setStyle(Paint.Style.FILL);
-        p.setColor(0x40FFFFFF);
+        p.setColor((glowCur & 0x00FFFFFF) | 0x1C000000);   // faint tint from the focused app's colour
         c.drawRoundRect(rf, hr.v, hr.v, p);
-        p.setStyle(Paint.Style.STROKE);
-        p.setStrokeWidth(1.5f * dp);
-        p.setColor(0x80FFFFFF);
-        c.drawRoundRect(rf, hr.v, hr.v, p);
-        p.setStyle(Paint.Style.FILL);
 
         drawPillText(c);
         drawDock(c);
@@ -737,7 +739,11 @@ final class HomeView extends View {
         c.restore();
         drawHint(c);
         drawMenu(c);
-        if (anim) postInvalidateOnAnimation(); else lastNs = 0;
+        if (anim) postInvalidateOnAnimation();
+        else {
+            lastNs = 0;
+            if (bgAnim && wall == null) postInvalidateDelayed(50);   // ~20 fps while only the background moves
+        }
     }
 
     private void drawWall(Canvas c) {
@@ -769,14 +775,14 @@ final class HomeView extends View {
         text.setColor(0xCCFFFFFF);
         c.drawText(greetStr, mx, 76 * dp, text);
         text.setTypeface(light);
-        text.setTextSize(104 * dp);
+        text.setTextSize(78 * dp);
         text.setColor(Color.WHITE);
-        c.drawText(timeStr, mx, 184 * dp, text);
+        c.drawText(timeStr, mx, 156 * dp, text);
         clockW = text.measureText(timeStr);
         text.setTypeface(regular);
         text.setTextSize(26 * dp);
         text.setColor(0xAAFFFFFF);
-        c.drawText(dateStr, mx, 226 * dp, text);
+        c.drawText(dateStr, mx, 192 * dp, text);
         drawWeather(c);
     }
 
@@ -785,19 +791,19 @@ final class HomeView extends View {
     private void drawWeather(Canvas c) {
         Weather w = weather;
         if (w == null) return;
-        float x = mx + clockW + 64 * dp;
-        drawIcon(c, w, x + 32 * dp, 138 * dp, 64 * dp);
+        float x = mx + clockW + 48 * dp;
+        drawIcon(c, w, x + 26 * dp, 128 * dp, 52 * dp);
         text.setTextAlign(Paint.Align.LEFT);
         text.setTypeface(light);
-        text.setTextSize(56 * dp);
+        text.setTextSize(42 * dp);
         text.setColor(Color.WHITE);
-        c.drawText(Math.round(w.temp) + "°", x + 88 * dp, 154 * dp, text);
+        c.drawText(Math.round(w.temp) + "°", x + 72 * dp, 140 * dp, text);
         text.setTypeface(regular);
-        text.setTextSize(22 * dp);
+        text.setTextSize(18 * dp);
         text.setColor(0xCCFFFFFF);
-        c.drawText(w.text(), x + 88 * dp, 186 * dp, text);
+        c.drawText(w.text(), x + 72 * dp, 164 * dp, text);
         text.setColor(0x99FFFFFF);
-        c.drawText("Cao " + Math.round(w.hi) + "°  Thấp " + Math.round(w.lo) + "°", x + 88 * dp, 214 * dp, text);
+        c.drawText("Cao " + Math.round(w.hi) + "°  Thấp " + Math.round(w.lo) + "°", x + 72 * dp, 188 * dp, text);
     }
 
     private void stroke(float width, int color) {
@@ -901,17 +907,135 @@ final class HomeView extends View {
         c.drawPath(path, p);
     }
 
-    private void drawPillText(Canvas c) {
-        text.setTypeface(regular);
-        text.setTextSize(18 * dp);
-        text.setColor(Color.WHITE);
-        text.setTextAlign(Paint.Align.CENTER);
-        Paint.FontMetrics fm = text.getFontMetrics();
-        for (int i = 0; i < NP; i++) {
-            float by = pill[i].centerY() - (fm.ascent + fm.descent) / 2f;
-            c.drawText(pillText[i], pill[i].centerX(), by, text);
+    // ------------------------------------------------- liquid glass + background
+
+    /** Glass panel: translucent body, lighter upper half, bright top rim, soft lower rim, optional specular glint. */
+    private void glass(Canvas c, RectF r, float rad, int a, boolean glint) {
+        p.setStyle(Paint.Style.FILL);
+        p.setColor((a << 24) | 0x00FFFFFF);
+        c.drawRoundRect(r, rad, rad, p);
+        c.save();
+        c.clipRect(r.left, r.top, r.right, r.top + r.height() * 0.5f);
+        p.setColor(((a / 2 + 6) << 24) | 0x00FFFFFF);
+        c.drawRoundRect(r, rad, rad, p);
+        c.restore();
+
+        rg.set(r);
+        rg.inset(0.75f * dp, 0.75f * dp);
+        p.setStyle(Paint.Style.STROKE);
+        p.setStrokeWidth(1.5f * dp);
+        c.save();
+        c.clipRect(r.left, r.top, r.right, r.top + r.height() * 0.4f);
+        p.setColor(0x99FFFFFF);
+        c.drawRoundRect(rg, rad, rad, p);
+        c.restore();
+        c.save();
+        c.clipRect(r.left, r.top + r.height() * 0.4f, r.right, r.bottom);
+        p.setColor(0x38FFFFFF);
+        c.drawRoundRect(rg, rad, rad, p);
+        c.restore();
+        p.setStyle(Paint.Style.FILL);
+
+        if (glint) {
+            p.setColor(0x40FFFFFF);
+            rg.set(r.left + r.width() * 0.14f, r.top + r.height() * 0.10f,
+                    r.left + r.width() * 0.46f, r.top + r.height() * 0.24f);
+            c.drawOval(rg, p);
         }
-        text.setTextAlign(Paint.Align.LEFT);
+    }
+
+    /** Slowly drifting colour blobs whose hues keep cycling. Skipped when a wallpaper is set or animation is off. */
+    private void drawBackground(Canvas c) {
+        if (wall != null || !bgAnim) return;
+        double t = System.nanoTime() / 1e9;
+        float R = 0.6f * Math.max(W, H);
+        for (int i = 0; i < 3; i++) {
+            double h = (t * 5.0 + i * 120.0 + 35.0 * Math.sin(t * 0.1 + i)) % 360.0;
+            if (h < 0) h += 360.0;
+            int hi = (int) h;
+            if (hi != bgHue[i]) {
+                bgHue[i] = hi;
+                bgHsv[0] = hi;
+                bgHsv[1] = 0.75f;
+                bgHsv[2] = 0.6f;
+                int col = Color.HSVToColor(bgHsv) & 0x00FFFFFF;
+                bgPaint[i].setShader(new RadialGradient(0, 0, R, new int[] { 0x88000000 | col, col }, null, Shader.TileMode.CLAMP));
+            }
+            float x, y;
+            if (i == 0) {
+                x = W * (0.25f + 0.2f * (float) Math.sin(t * 0.11));
+                y = H * (0.3f + 0.2f * (float) Math.cos(t * 0.13));
+            } else if (i == 1) {
+                x = W * (0.75f + 0.2f * (float) Math.cos(t * 0.09));
+                y = H * (0.4f + 0.25f * (float) Math.sin(t * 0.12 + 1));
+            } else {
+                x = W * (0.5f + 0.3f * (float) Math.sin(t * 0.08 + 2));
+                y = H * (0.85f + 0.15f * (float) Math.cos(t * 0.1));
+            }
+            c.save();
+            c.translate(x, y);
+            c.drawCircle(0, 0, R, bgPaint[i]);
+            c.restore();
+        }
+    }
+
+    // ------------------------------------------------------------- top-bar icons
+
+    private void drawPillText(Canvas c) {
+        float u = pillH * 0.5f;   // icon box
+        for (int i = 0; i < NP; i++) {
+            float cx = pill[i].centerX(), cy = pill[i].centerY();
+            if (i == P_ARR) { if (arrange) iconCheck(c, cx, cy, u); else iconGrid(c, cx, cy, u); }
+            else if (i == P_WIFI) iconWifi(c, cx, cy, u);
+            else iconGear(c, cx, cy, u);
+        }
+        p.setStyle(Paint.Style.FILL);
+        p.setStrokeCap(Paint.Cap.BUTT);
+    }
+
+    private void iconGrid(Canvas c, float cx, float cy, float u) {
+        p.setStyle(Paint.Style.FILL);
+        p.setColor(0xF2FFFFFF);
+        float h = 0.21f * u, o = 0.26f * u;
+        for (int sx = -1; sx <= 1; sx += 2) {
+            for (int sy = -1; sy <= 1; sy += 2) {
+                rg.set(cx + sx * o - h, cy + sy * o - h, cx + sx * o + h, cy + sy * o + h);
+                c.drawRoundRect(rg, 0.08f * u, 0.08f * u, p);
+            }
+        }
+    }
+
+    private void iconCheck(Canvas c, float cx, float cy, float u) {
+        stroke(2.8f * dp, 0xF2FFFFFF);
+        path.reset();
+        path.moveTo(cx - 0.32f * u, cy + 0.02f * u);
+        path.lineTo(cx - 0.08f * u, cy + 0.26f * u);
+        path.lineTo(cx + 0.34f * u, cy - 0.24f * u);
+        c.drawPath(path, p);
+    }
+
+    private void iconWifi(Canvas c, float cx, float cy, float u) {
+        float oy = cy + 0.32f * u;
+        stroke(2.4f * dp, 0xF2FFFFFF);
+        float[] rad = { 0.36f * u, 0.62f * u, 0.88f * u };
+        for (int i = 0; i < 3; i++) {
+            rg.set(cx - rad[i], oy - rad[i], cx + rad[i], oy + rad[i]);
+            c.drawArc(rg, 225f, 90f, false, p);
+        }
+        p.setStyle(Paint.Style.FILL);
+        c.drawCircle(cx, oy, 0.09f * u, p);
+    }
+
+    private void iconGear(Canvas c, float cx, float cy, float u) {
+        stroke(2.2f * dp, 0xF2FFFFFF);
+        c.drawCircle(cx, cy, 0.3f * u, p);
+        c.drawCircle(cx, cy, 0.1f * u, p);
+        stroke(3.2f * dp, 0xF2FFFFFF);
+        for (int i = 0; i < 8; i++) {
+            double a = i * Math.PI / 4;
+            float ca = (float) Math.cos(a), sa = (float) Math.sin(a);
+            c.drawLine(cx + ca * 0.4f * u, cy + sa * 0.4f * u, cx + ca * 0.52f * u, cy + sa * 0.52f * u, p);
+        }
     }
 
     private void drawGlow(Canvas c) {

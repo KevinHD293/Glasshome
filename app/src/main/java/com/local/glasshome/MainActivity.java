@@ -46,6 +46,7 @@ public class MainActivity extends Activity {
     private static final String K_WLAT = "w_lat";
     private static final String K_WLON = "w_lon";
     private static final String K_WDATA = "w_data";
+    private static final String K_BGANIM = "bganim";
     private static final String K_LAST = "last";
     private static final String K_ASKED = "asked_location";
 
@@ -78,6 +79,7 @@ public class MainActivity extends Activity {
         setContentView(view);
         weather = Weather.decode(prefs.getString(K_WDATA, ""));
         view.setWeather(weather);
+        view.setBgAnim(prefs.getBoolean(K_BGANIM, true));
         requestLocationOnce();
         IntentFilter pf = new IntentFilter();
         pf.addAction(Intent.ACTION_PACKAGE_ADDED);
@@ -131,6 +133,7 @@ public class MainActivity extends Activity {
         setIntent(intent);
         handleExtras(intent);
         sfx.configure(prefs.getBoolean(K_SOUND, true), prefs.getFloat(K_SFXVOL, 0.5f));
+        if (view != null) view.setBgAnim(prefs.getBoolean(K_BGANIM, true));
         if (dirty) loadApps();
         view.goHome();
     }
@@ -140,6 +143,7 @@ public class MainActivity extends Activity {
         if (i == null) return;
         if (i.hasExtra("sound")) prefs.edit().putBoolean(K_SOUND, i.getBooleanExtra("sound", true)).apply();
         if (i.hasExtra("sfxvol")) prefs.edit().putFloat(K_SFXVOL, i.getFloatExtra("sfxvol", 0.5f)).apply();
+        if (i.hasExtra("bganim")) prefs.edit().putBoolean(K_BGANIM, i.getBooleanExtra("bganim", true)).apply();
         String city = i.getStringExtra("city");
         if (city != null && city.trim().length() > 0) setCity(city.trim());
         String d = i.getStringExtra("dock");
