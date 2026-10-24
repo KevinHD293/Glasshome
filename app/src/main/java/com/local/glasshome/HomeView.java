@@ -96,6 +96,7 @@ final class HomeView extends View {
     private Typeface light, regular;
     private Bitmap wall;
     private boolean wallOn = true;
+    private boolean wallChecked = false;
     private Bitmap barBlur;
     private final Paint scrimPaint = new Paint();
     private final Matrix scrimM = new Matrix();
@@ -142,9 +143,19 @@ final class HomeView extends View {
 
         // Optional wallpaper: put wallpaper.jpg in app/src/main/assets/ (shown dimmed). Default is pure black.
         try {
-            InputStream in = ctx.getAssets().open("wallpaper.jpg");
+            // The asset is 3840x2160. Decode it at the smallest size that still covers the screen, so it stays sharp
+            // on a 4K UI and costs little memory on a 1080p UI.
+            BitmapFactory.Options b = new BitmapFactory.Options();
+            b.inJustDecodeBounds = true;
+            InputStream in0 = ctx.getAssets().open("wallpaper.jpg");
+            BitmapFactory.decodeStream(in0, null, b);
+            in0.close();
+            int screenW = ctx.getResources().getDisplayMetrics().widthPixels;
+            int sample = 1;
+            while (b.outWidth / (sample * 2) >= screenW) sample *= 2;
             BitmapFactory.Options o = new BitmapFactory.Options();
-            o.inSampleSize = 1;
+            o.inSampleSize = sample;
+            InputStream in = ctx.getAssets().open("wallpaper.jpg");
             wall = BitmapFactory.decodeStream(in, null, o);
             in.close();
         } catch (Exception ignored) { wall = null; }
@@ -813,6 +824,16 @@ final class HomeView extends View {
 
     private void drawWall(Canvas c) {
         if (wall == null || !wallOn) return;
+        if (!wallChecked) {   // safety: shrink the wallpaper if this GPU cannot draw a bitmap that wide
+            wallChecked = true;
+            int maxW = c.getMaximumBitmapWidth();
+            if (maxW > 0 && wall.getWidth() > maxW) {
+                Bitmap smaller = Bitmap.createScaledBitmap(wall, maxW, Math.max(1, wall.getHeight() * maxW / wall.getWidth()), true);
+                wall.recycle();
+                wall = smaller;
+                buildBarBlur();
+            }
+        }
         wallDst.set(0, 0, W, H);
         wallSource(wallDst, wallSrc);
         c.drawBitmap(wall, wallSrc, wallDst, wallPaint);
