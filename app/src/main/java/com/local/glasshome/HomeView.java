@@ -43,6 +43,8 @@ final class HomeView extends View {
     private static final int COLS = 4, DOCK_MAX = 4;
     private static final float POP = 1.07f;
     private static final float HELD = 1.14f;
+    private static final float[] GLOW_W = { 38f, 26f, 15f, 8f };
+    private static final int[] GLOW_A = { 0x0E, 0x18, 0x28, 0x44 };
     private static final float[] FOG_Y = { -0.45f, -0.15f, 0.15f, 0.45f };
     private static final float[] FOG_W = { 0.7f, 0.9f, 0.9f, 0.6f };
     private static final int M_MOVE = 0, M_DEL = 1, M_NOTE = 2, M_CLOSE = 3;   // app menu rows
@@ -94,6 +96,10 @@ final class HomeView extends View {
     private Typeface light, regular;
     private Bitmap wall;
     private Bitmap barBlur;
+    private final Paint scrimPaint = new Paint();
+    private final Matrix scrimM = new Matrix();
+    private final LinearGradient scrimShader = new LinearGradient(0, 0, 0, 1,
+            new int[] { 0x44000000, 0x00000000, 0x00000000, 0x44000000 }, new float[] { 0f, 0.35f, 0.65f, 1f }, Shader.TileMode.CLAMP);
     private final Rect wallSrc = new Rect(), tmpSrc = new Rect();
     private final RectF wallDst = new RectF();
     private final Paint blurPaint = new Paint(Paint.FILTER_BITMAP_FLAG | Paint.ANTI_ALIAS_FLAG);
@@ -143,6 +149,7 @@ final class HomeView extends View {
         } catch (Exception ignored) { wall = null; }
         wallPaint.setAlpha(255);
 
+        text.setShadowLayer(3 * dp, 0, 1.5f * dp, 0x66000000);
         boolean h24 = android.text.format.DateFormat.is24HourFormat(ctx);
         timeFmt = new SimpleDateFormat(h24 ? "HH:mm" : "h:mm", Locale.getDefault());
         dateFmt = new SimpleDateFormat("EEEE, d MMMM", Locale.getDefault());
@@ -281,6 +288,9 @@ final class HomeView extends View {
             pill[i].set(right - pillH, 40 * dp, right, 40 * dp + pillH);
             right -= pillH + 16 * dp;
         }
+        scrimM.setScale(1f, H);
+        scrimShader.setLocalMatrix(scrimM);
+        scrimPaint.setShader(scrimShader);
         buildBarBlur();
     }
 
@@ -319,10 +329,13 @@ final class HomeView extends View {
         if (!dock.isEmpty()) {
             slot(dockIdx, rf);
             gx.t = rf.centerX();
-            glowTgt = colorOf(dock.get(dockIdx));
         } else {
             gx.t = W / 2;
         }
+        AppEntry focused = null;
+        if (zone == ZG && !grid.isEmpty()) focused = grid.get(gridIdx);
+        else if (!dock.isEmpty()) focused = dock.get(dockIdx);
+        if (focused != null) glowTgt = colorOf(focused);
         if (snap) {
             hx.snap(hx.t); hy.snap(hy.t); hw.snap(hw.t); hh.snap(hh.t); hr.snap(hr.t);
             scroll.snap(scroll.t); gx.snap(gx.t); pop.snap(POP);
@@ -746,7 +759,7 @@ final class HomeView extends View {
         float ey = Math.min(0.14f, Math.abs(hy.vel) / 14000f) * hh.v;
         if (zone == ZT) {
             rf.set(hx.v - ex / 2f, hy.v - ey / 2f, hx.v + hw.v + ex / 2f, hy.v + hh.v + ey / 2f);
-            glass(c, rf, hr.v, 0x34, true);   // the top icons keep the glass highlight
+            glass(c, rf, hr.v, 0x34, false);  // the top icons keep a plain glass circle (no glint)
         } else {
             // Selected tile: an even outline in the app's colour, concentric with the (scaled) tile, so the gap
             // and the corner radius stay proportional to the tile on every side.
@@ -758,9 +771,11 @@ final class HomeView extends View {
             float rad = 18 * dp * sc + d;
             int col = glowCur & 0x00FFFFFF;
             p.setStyle(Paint.Style.STROKE);
-            p.setStrokeWidth(sw + 4 * dp);      // soft outer glow
-            p.setColor(0x38000000 | col);
-            c.drawRoundRect(rf, rad, rad, p);
+            for (int i = 0; i < GLOW_W.length; i++) {      // glow spreading outwards (tiles are drawn on top of the inner half)
+                p.setStrokeWidth(GLOW_W[i] * dp);
+                p.setColor((GLOW_A[i] << 24) | col);
+                c.drawRoundRect(rf, rad, rad, p);
+            }
             p.setStrokeWidth(sw);
             p.setColor(0xFF000000 | col);
             c.drawRoundRect(rf, rad, rad, p);
@@ -793,6 +808,7 @@ final class HomeView extends View {
         wallDst.set(0, 0, W, H);
         wallSource(wallDst, wallSrc);
         c.drawBitmap(wall, wallSrc, wallDst, wallPaint);
+        c.drawRect(wallDst, scrimPaint);   // faint dark scrim at the top and bottom keeps text readable
     }
 
     private void bandRect(RectF out) {
@@ -866,11 +882,11 @@ final class HomeView extends View {
         text.setTypeface(regular);
         Weather w = weather;
         if (w != null) {
-            drawIcon(c, w, bx + 15 * dp, y1 - 7 * dp, 30 * dp);
+            drawIcon(c, w, bx + 11 * dp, y1 - 6 * dp, 22 * dp);
             text.setTextSize(20 * dp);
             text.setColor(Color.WHITE);
             String l1 = Math.round(w.temp) + "°C " + w.text() + (place.length() > 0 ? " · " + place : "");
-            c.drawText(l1, bx + 38 * dp, y1, text);
+            c.drawText(l1, bx + 30 * dp, y1, text);
         }
         text.setTextSize(14.5f * dp);
         text.setLetterSpacing(0.14f);
@@ -902,7 +918,7 @@ final class HomeView extends View {
                 cloud(c, cx + 0.12f * u, cy + 0.2f * u, 0.8f * u);
                 break;
             case Weather.FOG:
-                stroke(Math.max(2 * dp, 0.1f * u), 0xFFB0B6C0);
+                stroke(Math.max(1.5f * dp, 0.1f * u), 0xFFB0B6C0);
                 for (int i = 0; i < 4; i++) {
                     float y = cy + FOG_Y[i] * u;
                     c.drawLine(cx - FOG_W[i] * u, y, cx + FOG_W[i] * u, y, p);
@@ -910,7 +926,7 @@ final class HomeView extends View {
                 break;
             case Weather.RAIN:
                 cloud(c, cx, cy - 0.25f * u, 0.8f * u);
-                stroke(Math.max(2 * dp, 0.12f * u), 0xFF4FC3F7);
+                stroke(Math.max(1.5f * dp, 0.12f * u), 0xFF4FC3F7);
                 for (int i = -1; i <= 1; i++) {
                     float x = cx + i * 0.45f * u;
                     c.drawLine(x + 0.1f * u, cy + 0.45f * u, x - 0.1f * u, cy + 0.85f * u, p);
@@ -962,7 +978,7 @@ final class HomeView extends View {
         p.setStyle(Paint.Style.FILL);
         p.setColor(0xFFFFC107);
         c.drawCircle(cx, cy, r, p);
-        stroke(Math.max(2 * dp, 0.2f * r), 0xFFFFC107);
+        stroke(Math.max(1.5f * dp, 0.2f * r), 0xFFFFC107);
         for (int i = 0; i < 8; i++) {
             double a = i * Math.PI / 4;
             float ca = (float) Math.cos(a), sa = (float) Math.sin(a);
