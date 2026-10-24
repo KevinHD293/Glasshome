@@ -95,6 +95,7 @@ final class HomeView extends View {
     private final RectF rf = new RectF(), tmp = new RectF();
     private Typeface light, regular;
     private Bitmap wall;
+    private boolean wallOn = true;
     private Bitmap barBlur;
     private final Paint scrimPaint = new Paint();
     private final Matrix scrimM = new Matrix();
@@ -250,6 +251,13 @@ final class HomeView extends View {
     }
 
     void setWeather(Weather w) { weather = w; invalidate(); }
+
+    void setWallpaper(boolean on) {
+        if (wallOn == on) return;
+        wallOn = on;
+        buildBarBlur();
+        invalidate();
+    }
 
     void setPlace(String name) { place = name == null ? "" : name; invalidate(); }
 
@@ -804,7 +812,7 @@ final class HomeView extends View {
     }
 
     private void drawWall(Canvas c) {
-        if (wall == null) return;
+        if (wall == null || !wallOn) return;
         wallDst.set(0, 0, W, H);
         wallSource(wallDst, wallSrc);
         c.drawBitmap(wall, wallSrc, wallDst, wallPaint);
@@ -818,7 +826,7 @@ final class HomeView extends View {
     /** Frosted look for the top bar: a blurred copy of the wallpaper behind it, made once per layout (no per-frame blur). */
     private void buildBarBlur() {
         if (barBlur != null) { barBlur.recycle(); barBlur = null; }
-        if (wall == null || W == 0) return;
+        if (wall == null || !wallOn || W == 0) return;
         try {
             bandRect(rg);
             wallSource(rg, tmpSrc);
@@ -847,8 +855,8 @@ final class HomeView extends View {
         int h = cal.get(Calendar.HOUR_OF_DAY);
         lunarStr = Lunar.describe(cal.get(Calendar.YEAR), cal.get(Calendar.MONTH) + 1, cal.get(Calendar.DAY_OF_MONTH))
                 .toUpperCase(Locale.getDefault());
-        greetStr = h < 5 ? "Chào buổi tối" : h < 12 ? "Chào buổi sáng" : h < 14 ? "Chào buổi trưa"
-                : h < 18 ? "Chào buổi chiều" : "Chào buổi tối";
+        greetStr = h < 5 ? "CHÀO BUỔI TỐI" : h < 11 ? "CHÀO BUỔI SÁNG" : h < 13 ? "CHÀO BUỔI TRƯA"
+                : h < 18 ? "CHÀO BUỔI CHIỀU" : "CHÀO BUỔI TỐI";
     }
 
     private void drawHeader(Canvas c) {
@@ -857,7 +865,7 @@ final class HomeView extends View {
         text.setTextSize(13 * dp);
         text.setLetterSpacing(0.28f);
         text.setColor(0xCCFFFFFF);
-        c.drawText("XIN CHÀO", mx, 46 * dp, text);
+        c.drawText(greetStr, mx, 46 * dp, text);
         text.setLetterSpacing(0f);
 
         text.setTypeface(light);
