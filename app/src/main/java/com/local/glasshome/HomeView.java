@@ -43,8 +43,8 @@ final class HomeView extends View {
     private static final int COLS = 4, DOCK_MAX = 4;
     private static final float POP = 1.07f;
     private static final float HELD = 1.14f;
-    private static final float[] GLOW_W = { 38f, 26f, 15f, 8f };
-    private static final int[] GLOW_A = { 0x0E, 0x18, 0x28, 0x44 };
+    private static final float[] GLOW_W = { 7f };
+    private static final int[] GLOW_A = { 0x38 };
     private static final float[] FOG_Y = { -0.45f, -0.15f, 0.15f, 0.45f };
     private static final float[] FOG_W = { 0.7f, 0.9f, 0.9f, 0.6f };
     private static final int M_MOVE = 0, M_DEL = 1, M_NOTE = 2, M_CLOSE = 3;   // app menu rows
@@ -707,7 +707,7 @@ final class HomeView extends View {
         float maxW = Math.max(240 * dp, pill[0].left - mx - 24 * dp);
         CharSequence s = TextUtils.ellipsize(msg, text, maxW - 28 * dp, TextUtils.TruncateAt.END);
         float tw = text.measureText(s, 0, s.length());
-        rf.set(mx, 6 * dp, mx + tw + 28 * dp, 38 * dp);
+        rf.set(mx, 4 * dp, mx + tw + 28 * dp, 32 * dp);
         p.setStyle(Paint.Style.FILL);
         p.setColor(0xEE2A2A2E);
         c.drawRoundRect(rf, 16 * dp, 16 * dp, p);
@@ -886,28 +886,29 @@ final class HomeView extends View {
         text.setTextSize(13 * dp);
         text.setLetterSpacing(0.28f);
         text.setColor(0xCCFFFFFF);
-        c.drawText(greetStr, mx, 46 * dp, text);
+        c.drawText(greetStr, mx, 44 * dp, text);
         text.setLetterSpacing(0f);
 
         text.setTypeface(light);
         text.setTextSize(54 * dp);
         text.setColor(Color.WHITE);
-        float base = 98 * dp;
+        float base = 106 * dp;
         c.drawText(timeStr, mx, base, text);
         float cw = text.measureText(timeStr);
 
-        float dx = mx + cw + 20 * dp;                 // thin divider between the clock and the info block
+        float gap = 24 * dp, bar = 1.5f * dp;          // the same gap on both sides of the divider
+        float dx = mx + cw + gap;                      // thin divider between the clock and the info block
         p.setStyle(Paint.Style.FILL);
         p.setColor(0x55FFFFFF);
-        c.drawRect(dx, base - 34 * dp, dx + 1.5f * dp, base, p);
-        drawInfo(c, dx + 20 * dp, base);
+        c.drawRect(dx, base - 51 * dp, dx + bar, base + 11 * dp, p);   // as tall as the three-line block, centred on the clock
+        drawInfo(c, dx + bar + gap, base);
     }
 
     // --------------------------------------------------------------- weather
 
     /** Three compact lines: weather, date, lunar date. */
     private void drawInfo(Canvas c, float bx, float base) {
-        float y1 = base - 48 * dp, y2 = base - 24 * dp, y3 = base;
+        float y1 = base - 36 * dp, y2 = base - 14 * dp, y3 = base + 8 * dp;   // even 22 dp line spacing
         text.setTypeface(regular);
         Weather w = weather;
         if (w != null) {
