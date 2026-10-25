@@ -48,6 +48,7 @@ public class MainActivity extends Activity {
     private static final String K_WDATA = "w_data";
     private static final String K_WNAME = "w_name";
     private static final String K_WALL = "wallpaper";
+    private static final String K_HIDDEN = "hidden";   // apps hidden from the home screen (comma separated packages)
     private static final String K_LAST = "last";
     private static final String K_ASKED = "asked_location";
 
@@ -148,6 +149,19 @@ public class MainActivity extends Activity {
         if (i.hasExtra("sound")) prefs.edit().putBoolean(K_SOUND, i.getBooleanExtra("sound", true)).apply();
         if (i.hasExtra("sfxvol")) prefs.edit().putFloat(K_SFXVOL, i.getFloatExtra("sfxvol", 0.5f)).apply();
         if (i.hasExtra("wallpaper")) prefs.edit().putBoolean(K_WALL, i.getBooleanExtra("wallpaper", true)).apply();
+        String hide = i.getStringExtra("hide");
+        if (hide != null && hide.trim().length() > 0) {
+            java.util.Set<String> s = hiddenSet();
+            s.add(hide.trim());
+            saveHidden(s);
+            dirty = true;
+        }
+        String unhide = i.getStringExtra("unhide");
+        if (unhide != null && unhide.trim().length() > 0) {
+            if (unhide.trim().equals("all")) prefs.edit().remove(K_HIDDEN).apply();
+            else { java.util.Set<String> s = hiddenSet(); s.remove(unhide.trim()); saveHidden(s); }
+            dirty = true;
+        }
         String city = i.getStringExtra("city");
         if (city != null && city.trim().length() > 0) setCity(city.trim());
         String d = i.getStringExtra("dock");
@@ -199,15 +213,45 @@ public class MainActivity extends Activity {
         return keys.toString();
     }
 
+    private java.util.Set<String> hiddenSet() {
+        java.util.Set<String> s = new java.util.HashSet<>();
+        for (String p : prefs.getString(K_HIDDEN, "").split(",")) {
+            p = p.trim();
+            if (p.length() > 0) s.add(p);
+        }
+        return s;
+    }
+
+    private void saveHidden(java.util.Set<String> s) {
+        StringBuilder sb = new StringBuilder();
+        for (String p : s) {
+            if (sb.length() > 0) sb.append(',');
+            sb.append(p);
+        }
+        prefs.edit().putString(K_HIDDEN, sb.toString()).apply();
+    }
+
+    /** Hides an app from the home screen only (the app itself stays installed and enabled). */
+    void hideApp(AppEntry e) {
+        java.util.Set<String> s = hiddenSet();
+        s.add(e.cn.getPackageName());
+        saveHidden(s);
+        Toast.makeText(this, "Đã ẩn " + e.label + ". Hiện lại: hidden-apps.bat show all", Toast.LENGTH_LONG).show();
+        dirty = true;
+        loadApps();
+    }
+
     private List<AppEntry> queryApps() {
         PackageManager pm = getPackageManager();
         Map<String, AppEntry> map = new LinkedHashMap<>();
+        java.util.Set<String> hiddenPkgs = hiddenSet();
         String[] cats = { Intent.CATEGORY_LEANBACK_LAUNCHER, Intent.CATEGORY_LAUNCHER };
         for (String cat : cats) {
             Intent q = new Intent(Intent.ACTION_MAIN).addCategory(cat);
             for (ResolveInfo ri : pm.queryIntentActivities(q, 0)) {
                 ActivityInfo ai = ri.activityInfo;
                 if (ai == null || ai.packageName.equals(getPackageName())) continue;
+                if (hiddenPkgs.contains(ai.packageName)) continue;
                 if (map.containsKey(ai.packageName)) continue;
                 AppEntry e = new AppEntry(String.valueOf(ri.loadLabel(pm)),
                         new ComponentName(ai.packageName, ai.name));

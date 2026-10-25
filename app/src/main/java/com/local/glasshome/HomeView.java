@@ -50,7 +50,7 @@ final class HomeView extends View {
     private static final int[] GLOW_A = { 0x38 };
     private static final float[] FOG_Y = { -0.45f, -0.15f, 0.15f, 0.45f };
     private static final float[] FOG_W = { 0.7f, 0.9f, 0.9f, 0.6f };
-    private static final int M_MOVE = 0, M_DEL = 1, M_NOTE = 2, M_CLOSE = 3;   // app menu rows
+    private static final int M_MOVE = 0, M_DEL = 1, M_NOTE = 2, M_CLOSE = 3, M_HIDE = 4;   // app menu rows
     private static final int P_ARR = 0, P_WIFI = 1, P_SET = 2, NP = 3;   // top-bar icon buttons
     private static final int P_IN = -1;                                  // Inputs button removed
 
@@ -512,6 +512,8 @@ final class HomeView extends View {
         menuIds.add(M_MOVE);
         if (act.canUninstall(cur)) { menuLabels.add("Gỡ cài đặt"); menuIds.add(M_DEL); }
         else { menuLabels.add("App hệ thống, không gỡ được"); menuIds.add(M_NOTE); }
+        menuLabels.add("Ẩn khỏi màn hình");
+        menuIds.add(M_HIDE);
         menuLabels.add("Đóng");
         menuIds.add(M_CLOSE);
         menuIdx = 0;
@@ -554,6 +556,9 @@ final class HomeView extends View {
         } else if (id == M_DEL) {
             act.sfx.open();
             act.uninstall(menuApp);
+        } else if (id == M_HIDE) {
+            act.sfx.open();
+            act.hideApp(menuApp);
         }
         invalidate();
     }
