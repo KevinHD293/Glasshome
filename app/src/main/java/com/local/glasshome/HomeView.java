@@ -16,6 +16,8 @@ import android.graphics.RectF;
 import android.graphics.Shader;
 import android.graphics.Typeface;
 import android.graphics.drawable.Drawable;
+import android.os.Environment;
+import android.os.StatFs;
 import android.text.TextPaint;
 import android.text.TextUtils;
 import android.view.KeyEvent;
@@ -102,7 +104,7 @@ final class HomeView extends View {
     private float wallFade = 1f;
     private boolean fading = false;
     private volatile int wallMaxW = 0;
-    private String memStr = "";
+    private String memStr = "", storStr = "";
     private final Paint scrimPaint = new Paint();
     private final Matrix scrimM = new Matrix();
     private final LinearGradient scrimShader = new LinearGradient(0, 0, 0, 1,
@@ -114,6 +116,7 @@ final class HomeView extends View {
     private String place = "";
     private float clockW = 0;
     private final RectF rg = new RectF();
+    private final Rect tb = new Rect();
     // unit-height vertical gradients (scaled to each panel): smooth sheen and rim, no hard light/dark seam
     private final Matrix gm = new Matrix();
     private final LinearGradient bodyShader = new LinearGradient(0, 0, 0, 1,
@@ -274,6 +277,15 @@ final class HomeView extends View {
                     + String.format(new Locale("vi", "VN"), "%.1f", freeMb / 1024f) + " GB";
         } catch (Exception e) {
             memStr = "";
+        }
+        try {   // internal storage (the /data partition): used / total and what is left
+            StatFs fs = new StatFs(Environment.getDataDirectory().getPath());
+            double total = fs.getTotalBytes() / 1073741824.0, free = fs.getAvailableBytes() / 1073741824.0;
+            Locale vi = new Locale("vi", "VN");
+            storStr = "Lưu trữ " + String.format(vi, "%.1f", total - free) + " / " + String.format(vi, "%.1f", total)
+                    + " GB  ·  Còn trống " + String.format(vi, "%.1f", free) + " GB";
+        } catch (Exception e) {
+            storStr = "";
         }
     }
 
@@ -998,21 +1010,29 @@ final class HomeView extends View {
                 : h < 18 ? "CHÀO BUỔI CHIỀU" : "CHÀO BUỔI TỐI";
     }
 
+    /** Draws text so that the ink of its first glyph starts exactly at x (cancels the font's left side bearing),
+     *  which lines the greeting, the clock and the RAM / storage lines up on one vertical edge. Returns the ink width. */
+    private float drawFlush(Canvas c, String str, float x, float y) {
+        if (str == null || str.length() == 0) return 0f;
+        text.getTextBounds(str, 0, str.length(), tb);
+        c.drawText(str, x - tb.left, y, text);
+        return tb.width();
+    }
+
     private void drawHeader(Canvas c) {
         text.setTextAlign(Paint.Align.LEFT);
         text.setTypeface(regular);
         text.setTextSize(13 * dp);
         text.setLetterSpacing(0.28f);
         text.setColor(0xCCFFFFFF);
-        c.drawText(greetStr, mx, 44 * dp, text);
+        drawFlush(c, greetStr, mx, 44 * dp);
         text.setLetterSpacing(0f);
 
         text.setTypeface(light);
         text.setTextSize(54 * dp);
         text.setColor(Color.WHITE);
         float base = 106 * dp;
-        c.drawText(timeStr, mx, base, text);
-        float cw = text.measureText(timeStr);
+        float cw = drawFlush(c, timeStr, mx, base);   // ink width of the clock
 
         float gap = 24 * dp, bar = 1.5f * dp;          // the same gap on both sides of the divider
         float dx = mx + cw + gap;                      // thin divider between the clock and the info block
@@ -1025,7 +1045,8 @@ final class HomeView extends View {
         text.setTextSize(14 * dp);
         text.setLetterSpacing(0.03f);
         text.setColor(0xCCFFFFFF);
-        c.drawText(memStr, mx, base + 38 * dp, text);
+        drawFlush(c, memStr, mx, base + 38 * dp);
+        drawFlush(c, storStr, mx, base + 58 * dp);
         text.setLetterSpacing(0f);
     }
 
