@@ -1,5 +1,6 @@
 package com.local.glasshome;
 
+import android.app.ActivityManager;
 import android.content.Context;
 import android.graphics.Bitmap;
 import android.graphics.BitmapFactory;
@@ -94,10 +95,14 @@ final class HomeView extends View {
     private final Path path = new Path(), path2 = new Path();
     private final RectF rf = new RectF(), tmp = new RectF();
     private Typeface light, regular;
-    private Bitmap wall;
+    private Bitmap wall, wallNext;               // current wallpaper and the one fading in
+    private Bitmap barBlur, barBlurNext;         // blurred copies of them behind the top bar
     private boolean wallOn = true;
-    private boolean wallChecked = false;
-    private Bitmap barBlur;
+    private long fadeStart = 0;
+    private float wallFade = 1f;
+    private boolean fading = false;
+    private volatile int wallMaxW = 0;
+    private String memStr = "";
     private final Paint scrimPaint = new Paint();
     private final Matrix scrimM = new Matrix();
     private final LinearGradient scrimShader = new LinearGradient(0, 0, 0, 1,
@@ -141,24 +146,6 @@ final class HomeView extends View {
         light = font(ctx, "sans-serif-light", "fonts/MyriadPro-Light.otf", "fonts/Outfit-Light.ttf");
         regular = font(ctx, "sans-serif", "fonts/MyriadPro-Regular.otf", "fonts/Outfit-Regular.ttf");
 
-        // Optional wallpaper: put wallpaper.jpg in app/src/main/assets/ (shown dimmed). Default is pure black.
-        try {
-            // The asset is 3840x2160. Decode it at the smallest size that still covers the screen, so it stays sharp
-            // on a 4K UI and costs little memory on a 1080p UI.
-            BitmapFactory.Options b = new BitmapFactory.Options();
-            b.inJustDecodeBounds = true;
-            InputStream in0 = ctx.getAssets().open("wallpaper.jpg");
-            BitmapFactory.decodeStream(in0, null, b);
-            in0.close();
-            int screenW = ctx.getResources().getDisplayMetrics().widthPixels;
-            int sample = 1;
-            while (b.outWidth / (sample * 2) >= screenW) sample *= 2;
-            BitmapFactory.Options o = new BitmapFactory.Options();
-            o.inSampleSize = sample;
-            InputStream in = ctx.getAssets().open("wallpaper.jpg");
-            wall = BitmapFactory.decodeStream(in, null, o);
-            in.close();
-        } catch (Exception ignored) { wall = null; }
         wallPaint.setAlpha(255);
 
         text.setShadowLayer(3 * dp, 0, 1.5f * dp, 0x66000000);
@@ -266,13 +253,29 @@ final class HomeView extends View {
     void setWallpaper(boolean on) {
         if (wallOn == on) return;
         wallOn = on;
-        buildBarBlur();
+        rebuildBlurs();
         invalidate();
     }
 
+    boolean hasWallpaper() { return wall != null || wallNext != null; }
+
     void setPlace(String name) { place = name == null ? "" : name; invalidate(); }
 
-    void tick() { invalidate(); }
+    void tick() { refreshMemory(); invalidate(); }
+
+    /** RAM line shown under the clock; refreshed once a minute and when the launcher comes back, never per frame. */
+    private void refreshMemory() {
+        try {
+            ActivityManager am = (ActivityManager) act.getSystemService(Context.ACTIVITY_SERVICE);
+            ActivityManager.MemoryInfo mi = new ActivityManager.MemoryInfo();
+            am.getMemoryInfo(mi);
+            long totalMb = mi.totalMem / (1024 * 1024), freeMb = mi.availMem / (1024 * 1024);
+            memStr = "Bộ nhớ " + (totalMb - freeMb) + " / " + totalMb + " MB  ·  Còn trống "
+                    + String.format(new Locale("vi", "VN"), "%.1f", freeMb / 1024f) + " GB";
+        } catch (Exception e) {
+            memStr = "";
+        }
+    }
 
     // ---------------------------------------------------------------- layout
 
@@ -310,7 +313,7 @@ final class HomeView extends View {
         scrimM.setScale(1f, H);
         scrimShader.setLocalMatrix(scrimM);
         scrimPaint.setShader(scrimShader);
-        buildBarBlur();
+        rebuildBlurs();
     }
 
     private void slot(int i, RectF r) {
@@ -759,12 +762,13 @@ final class HomeView extends View {
         // one band behind the three top icons: frosted (blurred wallpaper) + glass sheen
         bandRect(rf);
         float bandRad = rf.height() / 2f;
-        if (barBlur != null) {
+        if (wallOn && (barBlur != null || barBlurNext != null)) {
             c.save();
             path.reset();
             path.addRoundRect(rf, bandRad, bandRad, Path.Direction.CW);
             c.clipPath(path);
-            c.drawBitmap(barBlur, null, rf, blurPaint);
+            if (barBlur != null) { blurPaint.setAlpha(255); c.drawBitmap(barBlur, null, rf, blurPaint); }
+            if (barBlurNext != null) { blurPaint.setAlpha((int) (255 * wallFade)); c.drawBitmap(barBlurNext, null, rf, blurPaint); }
             c.restore();
             p.setStyle(Paint.Style.FILL);
             p.setColor(0x26FFFFFF);               // frost tint
@@ -810,58 +814,172 @@ final class HomeView extends View {
         c.restore();
         drawHint(c);
         drawMenu(c);
-        if (anim) postInvalidateOnAnimation(); else lastNs = 0;
+        if (anim || fading) postInvalidateOnAnimation(); else lastNs = 0;
     }
 
-    /** The part of the wallpaper bitmap that sits behind a screen rectangle (centre-crop mapping). */
-    private void wallSource(RectF scr, Rect out) {
-        float bw = wall.getWidth(), bh = wall.getHeight();
+    /** The part of a wallpaper bitmap that sits behind a screen rectangle (centre-crop mapping). */
+    private void wallSource(Bitmap b, RectF scr, Rect out) {
+        float bw = b.getWidth(), bh = b.getHeight();
         float sc = Math.max(W / bw, H / bh);
         float offX = (bw - W / sc) / 2f, offY = (bh - H / sc) / 2f;
         out.set((int) (offX + scr.left / sc), (int) (offY + scr.top / sc),
                 (int) (offX + scr.right / sc), (int) (offY + scr.bottom / sc));
     }
 
+    private void drawBmp(Canvas c, Bitmap b, int alpha) {
+        wallSource(b, wallDst, wallSrc);
+        wallPaint.setAlpha(alpha);
+        c.drawBitmap(b, wallSrc, wallDst, wallPaint);
+    }
+
     private void drawWall(Canvas c) {
-        if (wall == null || !wallOn) return;
-        if (!wallChecked) {   // safety: shrink the wallpaper if this GPU cannot draw a bitmap that wide
-            wallChecked = true;
-            int maxW = c.getMaximumBitmapWidth();
-            if (maxW > 0 && wall.getWidth() > maxW) {
-                Bitmap smaller = Bitmap.createScaledBitmap(wall, maxW, Math.max(1, wall.getHeight() * maxW / wall.getWidth()), true);
-                wall.recycle();
-                wall = smaller;
-                buildBarBlur();
-            }
+        fading = false;
+        if (!wallOn || (wall == null && wallNext == null)) return;
+        if (wallMaxW == 0) {   // first frame: learn the widest bitmap this GPU can draw
+            wallMaxW = Math.max(1, c.getMaximumBitmapWidth());
+            wall = cap(wall);
+            wallNext = cap(wallNext);
+            rebuildBlurs();
         }
         wallDst.set(0, 0, W, H);
-        wallSource(wallDst, wallSrc);
-        c.drawBitmap(wall, wallSrc, wallDst, wallPaint);
+        wallFade = 1f;
+        if (wallNext != null) {
+            wallFade = Math.min(1f, (System.nanoTime() - fadeStart) / 1.2e9f);
+            fading = wallFade < 1f;
+        }
+        if (wall != null) drawBmp(c, wall, 255);
+        if (wallNext != null) drawBmp(c, wallNext, (int) (255 * wallFade));
         c.drawRect(wallDst, scrimPaint);   // faint dark scrim at the top and bottom keeps text readable
+        if (wallNext != null && wallFade >= 1f) finishFade();
+    }
+
+    private void finishFade() {
+        Bitmap oldWall = wall, oldBlur = barBlur;
+        wall = wallNext;
+        barBlur = barBlurNext;
+        wallNext = null;
+        barBlurNext = null;
+        wallFade = 1f;
+        fading = false;
+        if (oldWall != wall) recycleLater(oldWall);
+        recycleLater(oldBlur);
+    }
+
+    private void recycleLater(final Bitmap b) {   // wait a moment: the last frame may still be using it
+        if (b == null) return;
+        postDelayed(new Runnable() {
+            @Override public void run() { if (!b.isRecycled()) b.recycle(); }
+        }, 1500);
+    }
+
+    private Bitmap cap(Bitmap b) {
+        if (b == null || wallMaxW <= 0 || b.getWidth() <= wallMaxW) return b;
+        Bitmap smaller = Bitmap.createScaledBitmap(b, wallMaxW, Math.max(1, b.getHeight() * wallMaxW / b.getWidth()), true);
+        recycleLater(b);
+        return smaller;
     }
 
     private void bandRect(RectF out) {
         out.set(pill[0].left - 14 * dp, pill[0].top - 8 * dp, pill[NP - 1].right + 14 * dp, pill[0].bottom + 8 * dp);
     }
 
-    /** Frosted look for the top bar: a blurred copy of the wallpaper behind it, made once per layout (no per-frame blur). */
-    private void buildBarBlur() {
-        if (barBlur != null) { barBlur.recycle(); barBlur = null; }
-        if (wall == null || !wallOn || W == 0) return;
+    /** Frosted look for the top bar: a blurred copy of the wallpaper behind it, made once (no per-frame blur). */
+    private Bitmap blurOf(Bitmap src) {
+        if (src == null || W == 0) return null;
         try {
             bandRect(rg);
-            wallSource(rg, tmpSrc);
-            tmpSrc.intersect(0, 0, wall.getWidth(), wall.getHeight());
-            if (tmpSrc.width() < 4 || tmpSrc.height() < 4) return;
-            Bitmap crop = Bitmap.createBitmap(wall, tmpSrc.left, tmpSrc.top, tmpSrc.width(), tmpSrc.height());
+            wallSource(src, rg, tmpSrc);
+            tmpSrc.intersect(0, 0, src.getWidth(), src.getHeight());
+            if (tmpSrc.width() < 4 || tmpSrc.height() < 4) return null;
+            Bitmap crop = Bitmap.createBitmap(src, tmpSrc.left, tmpSrc.top, tmpSrc.width(), tmpSrc.height());
             Bitmap small = Bitmap.createScaledBitmap(crop, Math.max(2, crop.getWidth() / 14), Math.max(2, crop.getHeight() / 14), true);
             Bitmap tiny = Bitmap.createScaledBitmap(small, Math.max(2, small.getWidth() / 2), Math.max(2, small.getHeight() / 2), true);
-            if (crop != wall) crop.recycle();
+            if (crop != src && crop != small) crop.recycle();
             if (small != tiny) small.recycle();
-            barBlur = tiny;
+            return tiny;
         } catch (Throwable t) {
-            barBlur = null;
+            return null;
         }
+    }
+
+    private void rebuildBlurs() {
+        Bitmap o1 = barBlur, o2 = barBlurNext;
+        barBlur = null;
+        barBlurNext = null;
+        if (wallOn && W != 0) {
+            barBlur = blurOf(wall);
+            barBlurNext = blurOf(wallNext);
+        }
+        recycleLater(o1);
+        recycleLater(o2);
+    }
+
+    /** Loads a wallpaper off the UI thread, then fades it in. token: "asset:path" or "file:/path". */
+    void showWallpaper(final String token) {
+        if (token == null) return;
+        new Thread(new Runnable() {
+            @Override public void run() {
+                final Bitmap bm = decodeWall(token);
+                if (bm == null) return;
+                post(new Runnable() {
+                    @Override public void run() {
+                        if (wallNext != null) finishFade();   // a fade was still running: finish it first
+                        wallNext = cap(bm);
+                        barBlurNext = blurOf(wallNext);
+                        fadeStart = System.nanoTime();
+                        invalidate();
+                    }
+                });
+            }
+        }).start();
+    }
+
+    /** Decodes at the smallest size that still covers the screen (sharp on 4K, light on 1080p). */
+    private Bitmap decodeWall(String token) {
+        try {
+            int screenW = act.getResources().getDisplayMetrics().widthPixels;
+            BitmapFactory.Options b = new BitmapFactory.Options();
+            b.inJustDecodeBounds = true;
+            InputStream in0 = openWall(token);
+            BitmapFactory.decodeStream(in0, null, b);
+            in0.close();
+            int sample = 1;
+            while (b.outWidth / (sample * 2) >= screenW) sample *= 2;
+            BitmapFactory.Options o = new BitmapFactory.Options();
+            o.inSampleSize = sample;
+            InputStream in = openWall(token);
+            Bitmap bm = BitmapFactory.decodeStream(in, null, o);
+            in.close();
+            if (bm != null && token.startsWith("file:")) {   // phone photos carry their rotation in EXIF
+                int rot = exifRotation(token.substring(5));
+                if (rot != 0) {
+                    Matrix m = new Matrix();
+                    m.postRotate(rot);
+                    Bitmap r = Bitmap.createBitmap(bm, 0, 0, bm.getWidth(), bm.getHeight(), m, true);
+                    if (r != bm) bm.recycle();
+                    bm = r;
+                }
+            }
+            return bm;
+        } catch (Throwable t) {
+            return null;
+        }
+    }
+
+    private InputStream openWall(String token) throws java.io.IOException {
+        if (token.startsWith("asset:")) return act.getAssets().open(token.substring(6));
+        return new java.io.FileInputStream(token.substring(5));
+    }
+
+    private static int exifRotation(String path) {
+        try {
+            android.media.ExifInterface ei = new android.media.ExifInterface(path);
+            int o = ei.getAttributeInt(android.media.ExifInterface.TAG_ORIENTATION, android.media.ExifInterface.ORIENTATION_NORMAL);
+            if (o == android.media.ExifInterface.ORIENTATION_ROTATE_90) return 90;
+            if (o == android.media.ExifInterface.ORIENTATION_ROTATE_180) return 180;
+            if (o == android.media.ExifInterface.ORIENTATION_ROTATE_270) return 270;
+        } catch (Throwable ignored) { }
+        return 0;
     }
 
     private void refreshClock() {
@@ -902,6 +1020,13 @@ final class HomeView extends View {
         p.setColor(0x55FFFFFF);
         c.drawRect(dx, base - 51 * dp, dx + bar, base + 11 * dp, p);   // as tall as the three-line block, centred on the clock
         drawInfo(c, dx + bar + gap, base);
+
+        text.setTypeface(regular);
+        text.setTextSize(14 * dp);
+        text.setLetterSpacing(0.03f);
+        text.setColor(0xCCFFFFFF);
+        c.drawText(memStr, mx, base + 38 * dp, text);
+        text.setLetterSpacing(0f);
     }
 
     // --------------------------------------------------------------- weather

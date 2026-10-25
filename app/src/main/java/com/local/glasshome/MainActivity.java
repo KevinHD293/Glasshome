@@ -26,11 +26,15 @@ import android.net.wifi.WifiInfo;
 import android.net.wifi.WifiManager;
 import android.os.Build;
 import android.os.Bundle;
+import android.os.Handler;
+import android.os.Looper;
 import android.provider.Settings;
 import android.view.KeyEvent;
 import android.widget.Toast;
 
+import java.io.File;
 import java.util.ArrayList;
+import java.util.Arrays;
 import java.util.Collections;
 import java.util.Comparator;
 import java.util.LinkedHashMap;
@@ -48,6 +52,9 @@ public class MainActivity extends Activity {
     private static final String K_WDATA = "w_data";
     private static final String K_WNAME = "w_name";
     private static final String K_WALL = "wallpaper";
+    private static final String K_WPINT = "wpinterval";   // minutes between wallpapers, 0 = never change
+    private static final String K_WPIDX = "wpindex";
+    private static final String K_WPSRC = "wpsource";      // 0 = built-in + mine, 1 = built-in, 2 = mine
     private static final String K_LAST = "last";
     private static final String K_ASKED = "asked_location";
 
@@ -57,6 +64,13 @@ public class MainActivity extends Activity {
 
     private HomeView view;
     Sfx sfx;
+    private final Handler handler = new Handler(Looper.getMainLooper());
+    private final Runnable rotate = new Runnable() {
+        @Override public void run() { nextWallpaper(); scheduleRotation(); }
+    };
+    private List<String> wpList = new ArrayList<>();
+    private int wpIndex = 0;
+    private boolean resumed = false, wpReload = false, wpNext = false;
     private Weather weather;
     private boolean weatherBusy = false;
     private SharedPreferences prefs;
@@ -82,6 +96,10 @@ public class MainActivity extends Activity {
         view.setWeather(weather);
         view.setPlace(prefs.getString(K_WNAME, "Buôn Ma Thuột"));
         view.setWallpaper(prefs.getBoolean(K_WALL, true));
+        loadWallpaperList();
+        showCurrentWallpaper();
+        wpReload = false;
+        wpNext = false;
         requestLocationOnce();
         IntentFilter pf = new IntentFilter();
         pf.addAction(Intent.ACTION_PACKAGE_ADDED);
@@ -114,11 +132,15 @@ public class MainActivity extends Activity {
         refreshWeather(false);
         view.refreshWifi();
         view.tick();
+        resumed = true;
+        loadWallpaperList();
+        scheduleRotation();
     }
 
     @Override
     protected void onDestroy() {
         super.onDestroy();
+        handler.removeCallbacks(rotate);
         try { unregisterReceiver(pkgReceiver); } catch (Exception ignored) { }
         if (sfx != null) sfx.release();
     }
@@ -126,6 +148,8 @@ public class MainActivity extends Activity {
     @Override
     protected void onPause() {
         super.onPause();
+        resumed = false;
+        handler.removeCallbacks(rotate);
         view.saveFocus();
     }
 
@@ -136,6 +160,14 @@ public class MainActivity extends Activity {
         handleExtras(intent);
         sfx.configure(prefs.getBoolean(K_SOUND, true), prefs.getFloat(K_SFXVOL, 0.5f));
         if (view != null) view.setWallpaper(prefs.getBoolean(K_WALL, true));
+        loadWallpaperList();
+        if (wallpaperOn()) {
+            if (wpReload || !view.hasWallpaper()) showCurrentWallpaper();
+            if (wpNext) nextWallpaper();
+        }
+        wpReload = false;
+        wpNext = false;
+        scheduleRotation();
         if (dirty) loadApps();
         view.goHome();
     }
@@ -146,6 +178,9 @@ public class MainActivity extends Activity {
         if (i.hasExtra("sound")) prefs.edit().putBoolean(K_SOUND, i.getBooleanExtra("sound", true)).apply();
         if (i.hasExtra("sfxvol")) prefs.edit().putFloat(K_SFXVOL, i.getFloatExtra("sfxvol", 0.5f)).apply();
         if (i.hasExtra("wallpaper")) prefs.edit().putBoolean(K_WALL, i.getBooleanExtra("wallpaper", true)).apply();
+        if (i.hasExtra("wpinterval")) prefs.edit().putInt(K_WPINT, Math.max(0, i.getIntExtra("wpinterval", 10))).apply();
+        if (i.hasExtra("wpsource")) { prefs.edit().putInt(K_WPSRC, i.getIntExtra("wpsource", 0)).putInt(K_WPIDX, 0).apply(); wpReload = true; }
+        if (i.getBooleanExtra("wpnext", false)) wpNext = true;
         String city = i.getStringExtra("city");
         if (city != null && city.trim().length() > 0) setCity(city.trim());
         String d = i.getStringExtra("dock");
@@ -237,6 +272,60 @@ public class MainActivity extends Activity {
         } catch (Exception ex) {
             Toast.makeText(this, "Không mở được " + e.label, Toast.LENGTH_SHORT).show();
         }
+    }
+
+    // ---- wallpaper album: built-in pictures + your own photos, changed on a timer with a cross-fade ----
+
+    private boolean wallpaperOn() { return prefs.getBoolean(K_WALL, true); }
+
+    private static boolean isImage(String name) {
+        String l = name.toLowerCase(java.util.Locale.ROOT);
+        return l.endsWith(".jpg") || l.endsWith(".jpeg") || l.endsWith(".png") || l.endsWith(".webp");
+    }
+
+    private void loadWallpaperList() {
+        List<String> builtIn = new ArrayList<>();
+        try {
+            String[] names = getAssets().list("wallpapers");
+            if (names != null) {
+                Arrays.sort(names);
+                for (String n : names) if (isImage(n)) builtIn.add("asset:wallpapers/" + n);
+            }
+            if (builtIn.isEmpty()) { getAssets().open("wallpaper.jpg").close(); builtIn.add("asset:wallpaper.jpg"); }
+        } catch (Exception ignored) { }
+        List<String> mine = new ArrayList<>();
+        File dir = getExternalFilesDir("wallpapers");
+        File[] files = dir == null ? null : dir.listFiles();
+        if (files != null) {
+            Arrays.sort(files);
+            for (File f : files) if (f.isFile() && isImage(f.getName())) mine.add("file:" + f.getAbsolutePath());
+        }
+        int src = prefs.getInt(K_WPSRC, 0);
+        List<String> out = new ArrayList<>();
+        if (src == 1) out.addAll(builtIn);
+        else if (src == 2 && !mine.isEmpty()) out.addAll(mine);
+        else { out.addAll(builtIn); out.addAll(mine); }
+        wpList = out;
+        wpIndex = prefs.getInt(K_WPIDX, 0);
+        if (wpIndex < 0 || wpIndex >= wpList.size()) wpIndex = 0;
+    }
+
+    private void showCurrentWallpaper() {
+        if (view == null || !wallpaperOn() || wpList.isEmpty()) return;
+        view.showWallpaper(wpList.get(wpIndex));
+    }
+
+    private void nextWallpaper() {
+        if (view == null || !wallpaperOn() || wpList.size() < 2) return;
+        wpIndex = (wpIndex + 1) % wpList.size();
+        prefs.edit().putInt(K_WPIDX, wpIndex).apply();
+        view.showWallpaper(wpList.get(wpIndex));
+    }
+
+    private void scheduleRotation() {
+        handler.removeCallbacks(rotate);
+        int minutes = prefs.getInt(K_WPINT, 10);
+        if (resumed && minutes > 0 && wpList.size() > 1 && wallpaperOn()) handler.postDelayed(rotate, minutes * 60000L);
     }
 
     // ---- weather (Open-Meteo): fetched on return to the home screen, at most every 30 minutes ----
