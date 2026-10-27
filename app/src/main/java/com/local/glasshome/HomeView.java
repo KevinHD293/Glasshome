@@ -51,8 +51,7 @@ final class HomeView extends View {
     private static final float[] FOG_Y = { -0.45f, -0.15f, 0.15f, 0.45f };
     private static final float[] FOG_W = { 0.7f, 0.9f, 0.9f, 0.6f };
     private static final int M_MOVE = 0, M_DEL = 1, M_NOTE = 2, M_CLOSE = 3, M_HIDE = 4;   // app menu rows
-    private static final int P_ARR = 0, P_WIFI = 1, P_SET = 2, NP = 3;   // top-bar icon buttons
-    private static final int P_IN = -1;                                  // Inputs button removed
+    private static final int P_IN = 0, P_CAST = 1, P_ARR = 2, P_WIFI = 3, P_SET = 4, NP = 5;   // top-bar icon buttons
 
     private static final class Spring {
         float v, t, vel, k = 520f, c = 34f, eps = 0.3f, veps = 2f;
@@ -77,6 +76,8 @@ final class HomeView extends View {
     private boolean arrange = false, tempArrange = false;   // arrange mode / entered by long-press
     private AppEntry held = null;                           // app currently picked up
     private boolean menuOpen = false;
+    private boolean castOpen = false, castOff = false;
+    private String castName = "", castNet = "";
     private int menuIdx = 0;
     private AppEntry menuApp = null;
     private final ArrayList<String> menuLabels = new ArrayList<>();
@@ -126,8 +127,8 @@ final class HomeView extends View {
 
     private float W, H, mx, dockTop, bandH, slotW, slotH, padD, gapD;
     private float cellW, tileW, tileH, rowH, gridTop, pillH;
-    private final RectF[] pill = { new RectF(), new RectF(), new RectF() };
-    private final String[] pillText = { "Sắp xếp", "Wi-Fi", "Settings" };
+    private final RectF[] pill = { new RectF(), new RectF(), new RectF(), new RectF(), new RectF() };
+    private final String[] pillText = { "Inputs", "Cast", "Sắp xếp", "Wi-Fi", "Settings" };
 
     private int glowCur = 0xFF8E8E93, glowTgt = 0xFF8E8E93, shaderColor = 0;
     private RadialGradient glowShader;
@@ -200,7 +201,7 @@ final class HomeView extends View {
             grid.clear();
             grid.addAll(ordered);
         }
-        menuOpen = false; held = null; arrange = false; tempArrange = false; pillText[P_ARR] = "Sắp xếp";
+        menuOpen = false; castOpen = false; held = null; arrange = false; tempArrange = false; pillText[P_ARR] = "Sắp xếp";
 
         // restore focus
         zone = ZD; dockIdx = 0; gridIdx = 0;
@@ -237,6 +238,7 @@ final class HomeView extends View {
     void goHome() {
         ddOpen = false;
         menuOpen = false;
+        castOpen = false;
         if (held != null) cancelMove();
         if (arrange) exitArrange();
         if (zone != ZD) { zone = ZD; fixZone(); }
@@ -386,6 +388,7 @@ final class HomeView extends View {
     // ------------------------------------------------------------------ keys
 
     boolean onNavDown(int k, KeyEvent e) {
+        if (castOpen) { castOpen = false; invalidate(); return true; }   // any key closes the Cast panel
         if (menuOpen) return menuDown(k, e);
         if (ddOpen) return ddDown(k, e);
         switch (k) {
@@ -487,7 +490,8 @@ final class HomeView extends View {
         if (held != null) { drop(); return; }
         if (!(arrange && (zone == ZD || zone == ZG))) act.sfx.open();
         if (zone == ZT) {
-            if (topIdx == P_ARR) toggleArrange();
+            if (topIdx == P_CAST) openCast();
+            else if (topIdx == P_ARR) toggleArrange();
             else if (topIdx == P_IN) { inputs = act.listInputs(); ddIdx = 0; ddOpen = true; invalidate(); }
             else if (topIdx == P_WIFI) act.openWifi();
             else act.openSettings();
@@ -831,6 +835,7 @@ final class HomeView extends View {
         c.restore();
         drawHint(c);
         drawMenu(c);
+        drawCast(c);
         if (anim || fading) postInvalidateOnAnimation(); else lastNs = 0;
     }
 
@@ -1217,12 +1222,118 @@ final class HomeView extends View {
         float u = pillH * 0.5f;   // icon box
         for (int i = 0; i < NP; i++) {
             float cx = pill[i].centerX(), cy = pill[i].centerY();
-            if (i == P_ARR) { if (arrange) iconCheck(c, cx, cy, u); else iconGrid(c, cx, cy, u); }
+            if (i == P_IN) iconInput(c, cx, cy, u);
+            else if (i == P_CAST) iconCast(c, cx, cy, u);
+            else if (i == P_ARR) { if (arrange) iconCheck(c, cx, cy, u); else iconGrid(c, cx, cy, u); }
             else if (i == P_WIFI) iconWifi(c, cx, cy, u);
             else iconGear(c, cx, cy, u);
         }
         p.setStyle(Paint.Style.FILL);
         p.setStrokeCap(Paint.Cap.BUTT);
+        p.setStrokeJoin(Paint.Join.MITER);
+    }
+
+    /** HDMI plug: solid body with chamfered bottom corners and four pin slits. */
+    private void iconInput(Canvas c, float cx, float cy, float u) {
+        float a = 0.46f * u, b = 0.28f * u, top = cy - 0.30f * u, mid = cy + 0.06f * u, bot = cy + 0.34f * u;
+        path.reset();
+        path.setFillType(Path.FillType.EVEN_ODD);
+        path.moveTo(cx - a, top);
+        path.lineTo(cx + a, top);
+        path.lineTo(cx + a, mid);
+        path.lineTo(cx + b, bot);
+        path.lineTo(cx - b, bot);
+        path.lineTo(cx - a, mid);
+        path.close();
+        for (int i = 0; i < 4; i++) {
+            float sx = cx - 0.27f * u + i * 0.18f * u;
+            path.addRect(sx - 0.035f * u, top + 0.09f * u, sx + 0.035f * u, top + 0.31f * u, Path.Direction.CCW);
+        }
+        p.setStyle(Paint.Style.FILL);
+        p.setColor(0xF2FFFFFF);
+        c.drawPath(path, p);
+        path.setFillType(Path.FillType.WINDING);
+    }
+
+    /** Cast glyph: screen outline open at the lower-left corner, with two waves and a dot. */
+    private void iconCast(Canvas c, float cx, float cy, float u) {
+        float a = 0.44f * u, top = cy - 0.34f * u, bot = cy + 0.34f * u;
+        float ox = cx - a, oy = bot, outer = 0.46f * u, inner = 0.24f * u;
+        stroke(2.8f * dp, 0xF2FFFFFF);
+        p.setStrokeJoin(Paint.Join.ROUND);
+        path.reset();
+        path.moveTo(ox, oy - outer);
+        path.lineTo(ox, top);
+        path.lineTo(cx + a, top);
+        path.lineTo(cx + a, bot);
+        path.lineTo(ox + outer, bot);
+        c.drawPath(path, p);
+        rg.set(ox - outer, oy - outer, ox + outer, oy + outer);
+        c.drawArc(rg, 270f, 90f, false, p);
+        rg.set(ox - inner, oy - inner, ox + inner, oy + inner);
+        c.drawArc(rg, 270f, 90f, false, p);
+        p.setStyle(Paint.Style.FILL);
+        c.drawCircle(ox, oy, 0.08f * u, p);
+    }
+
+    // ---------------------------------------------------------------- cast panel
+
+    private void openCast() {
+        String[] info = act.castInfo();
+        castName = info[0];
+        castNet = info[1];
+        castOff = "off".equals(info[2]);
+        castOpen = true;
+        invalidate();
+    }
+
+    private void castLine(Canvas c, String str, float x, float y, float maxW) {
+        CharSequence t = TextUtils.ellipsize(str, text, maxW, TextUtils.TruncateAt.END);
+        c.drawText(t, 0, t.length(), x, y, text);
+    }
+
+    private void drawCast(Canvas c) {
+        if (!castOpen) return;
+        p.setStyle(Paint.Style.FILL);
+        p.setColor(0xAA000000);
+        c.drawRect(0, 0, W, H, p);
+
+        float w = Math.min(W - 2 * mx, 620 * dp), h = 300 * dp;
+        float x = (W - w) / 2f, y = (H - h) / 2f, pad = 28 * dp, maxW = w - 2 * pad;
+        rf.set(x, y, x + w, y + h);
+        p.setColor(0xF2222226);
+        c.drawRoundRect(rf, 28 * dp, 28 * dp, p);
+        p.setStyle(Paint.Style.STROKE);
+        p.setStrokeWidth(1.5f * dp);
+        p.setColor(0x50FFFFFF);
+        c.drawRoundRect(rf, 28 * dp, 28 * dp, p);
+        p.setStyle(Paint.Style.FILL);
+
+        text.setTextAlign(Paint.Align.LEFT);
+        text.setTypeface(light);
+        text.setTextSize(26 * dp);
+        text.setColor(Color.WHITE);
+        castLine(c, "Truyền từ điện thoại lên TV (Cast)", x + pad, y + 46 * dp, maxW);
+
+        text.setTypeface(regular);
+        text.setTextSize(20 * dp);
+        castLine(c, "Tên TV:  " + castName, x + pad, y + 92 * dp, maxW);
+        castLine(c, "Mạng:  " + castNet, x + pad, y + 122 * dp, maxW);
+
+        text.setTextSize(17 * dp);
+        text.setColor(0xCCFFFFFF);
+        castLine(c, "1. Nối điện thoại vào cùng mạng Wi-Fi với TV.", x + pad, y + 170 * dp, maxW);
+        castLine(c, "2. Mở YouTube, Netflix hoặc Google Home trên điện thoại.", x + pad, y + 198 * dp, maxW);
+        castLine(c, "3. Bấm biểu tượng Cast rồi chọn \"" + castName + "\".", x + pad, y + 226 * dp, maxW);
+
+        text.setTextSize(15 * dp);
+        if (castOff) {
+            text.setColor(0xFFFF8A80);
+            castLine(c, "Chromecast tích hợp đang bị tắt trên TV nên điện thoại không thấy TV.", x + pad, y + 266 * dp, maxW);
+        } else {
+            text.setColor(0x99FFFFFF);
+            castLine(c, "Bấm phím bất kỳ để đóng.", x + pad, y + 266 * dp, maxW);
+        }
     }
 
     private void iconGrid(Canvas c, float cx, float cy, float u) {

@@ -339,6 +339,19 @@ public class MainActivity extends Activity {
         }).start();
     }
 
+    /** {name of the TV, Wi-Fi label, "off" if the built-in Chromecast receiver is disabled else "ok"} */
+    String[] castInfo() {
+        String name = null;
+        try { name = Settings.Global.getString(getContentResolver(), "device_name"); } catch (Exception ignored) { }
+        if (name == null || name.trim().length() == 0) name = Build.MODEL;
+        String state = "ok";
+        try {
+            ApplicationInfo ai = getPackageManager().getApplicationInfo("com.google.android.apps.mediashell", 0);
+            if (!ai.enabled) state = "off";
+        } catch (Exception ignored) { }   // not found / not visible: say nothing
+        return new String[] { name, wifiLabel(), state };
+    }
+
     /** Only apps the user installed can be removed; system apps cannot. */
     boolean canUninstall(AppEntry e) {
         try {
