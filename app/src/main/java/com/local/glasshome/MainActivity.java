@@ -121,6 +121,7 @@ public class MainActivity extends Activity {
     @Override
     protected void onDestroy() {
         super.onDestroy();
+        phone.stop();
         try { unregisterReceiver(pkgReceiver); } catch (Exception ignored) { }
         if (sfx != null) sfx.release();
     }
@@ -129,6 +130,7 @@ public class MainActivity extends Activity {
     protected void onPause() {
         super.onPause();
         view.saveFocus();
+        view.closePhone();   // the phone settings server never keeps running in the background
     }
 
     @Override
@@ -149,6 +151,16 @@ public class MainActivity extends Activity {
         if (i.hasExtra("sound")) prefs.edit().putBoolean(K_SOUND, i.getBooleanExtra("sound", true)).apply();
         if (i.hasExtra("sfxvol")) prefs.edit().putFloat(K_SFXVOL, i.getFloatExtra("sfxvol", 0.5f)).apply();
         if (i.hasExtra("wallpaper")) prefs.edit().putBoolean(K_WALL, i.getBooleanExtra("wallpaper", true)).apply();
+        String hiddenList = i.getStringExtra("hiddenlist");   // replaces the whole hidden set
+        if (hiddenList != null) {
+            java.util.Set<String> hs = new java.util.HashSet<>();
+            for (String p : hiddenList.split(",")) {
+                p = p.trim();
+                if (p.length() > 0) hs.add(p);
+            }
+            saveHidden(hs);
+            dirty = true;
+        }
         String hide = i.getStringExtra("hide");
         if (hide != null && hide.trim().length() > 0) {
             java.util.Set<String> s = hiddenSet();
@@ -337,6 +349,119 @@ public class MainActivity extends Activity {
                 refreshWeather(true);
             });
         }).start();
+    }
+
+    // ---- customize from the phone browser (see PhoneServer and assets/phone.html) ----
+
+    private final PhoneServer phone = new PhoneServer();
+
+    /** Opens the phone settings server. Returns {address, PIN} or null when no port could be opened. */
+    String[] startPhone() {
+        String url = phone.start(new PhoneServer.Bridge() {
+            @Override public String stateJson() { return phoneState(); }
+            @Override public void apply(final String kind, final String json) {
+                runOnUiThread(new Runnable() {
+                    @Override public void run() { applyFromPhone(kind, json); }
+                });
+            }
+            @Override public String page() { return readAsset("phone.html"); }
+        });
+        return url == null ? null : new String[] { url, phone.pin() };
+    }
+
+    void stopPhone() { phone.stop(); }
+
+    private String readAsset(String name) {
+        try {
+            java.io.InputStream in = getAssets().open(name);
+            java.io.ByteArrayOutputStream bo = new java.io.ByteArrayOutputStream();
+            byte[] buf = new byte[8192];
+            int n;
+            while ((n = in.read(buf)) > 0) bo.write(buf, 0, n);
+            in.close();
+            return bo.toString("UTF-8");
+        } catch (Exception e) {
+            return "<h1>phone.html missing</h1>";
+        }
+    }
+
+    /** Builds the settings JSON on the UI thread (the view's lists are not thread-safe). */
+    private String phoneState() {
+        final String[] out = new String[1];
+        final java.util.concurrent.CountDownLatch latch = new java.util.concurrent.CountDownLatch(1);
+        runOnUiThread(new Runnable() {
+            @Override public void run() {
+                try { out[0] = buildState(); } catch (Exception e) { out[0] = "{}"; }
+                latch.countDown();
+            }
+        });
+        try { latch.await(3, java.util.concurrent.TimeUnit.SECONDS); } catch (InterruptedException ignored) { }
+        return out[0] == null ? "{}" : out[0];
+    }
+
+    private String buildState() throws Exception {
+        org.json.JSONObject o = new org.json.JSONObject();
+        org.json.JSONArray apps = new org.json.JSONArray();
+        PackageManager pm = getPackageManager();
+        Map<String, String> labels = new LinkedHashMap<>();
+        String[] cats = { Intent.CATEGORY_LEANBACK_LAUNCHER, Intent.CATEGORY_LAUNCHER };
+        for (String cat : cats) {
+            for (ResolveInfo ri : pm.queryIntentActivities(new Intent(Intent.ACTION_MAIN).addCategory(cat), 0)) {
+                if (ri.activityInfo == null || ri.activityInfo.packageName.equals(getPackageName())) continue;
+                if (!labels.containsKey(ri.activityInfo.packageName)) labels.put(ri.activityInfo.packageName, String.valueOf(ri.loadLabel(pm)));
+            }
+        }
+        List<Map.Entry<String, String>> list = new ArrayList<>(labels.entrySet());
+        Collections.sort(list, new Comparator<Map.Entry<String, String>>() {
+            @Override public int compare(Map.Entry<String, String> a, Map.Entry<String, String> b) {
+                return a.getValue().compareToIgnoreCase(b.getValue());
+            }
+        });
+        for (Map.Entry<String, String> e : list) {
+            org.json.JSONObject j = new org.json.JSONObject();
+            j.put("p", e.getKey());
+            j.put("l", e.getValue());
+            apps.put(j);
+        }
+        o.put("apps", apps);
+        o.put("dock", new org.json.JSONArray(view.dockPackages()));
+        o.put("hidden", new org.json.JSONArray(new ArrayList<String>(hiddenSet())));
+        o.put("sound", prefs.getBoolean(K_SOUND, true));
+        o.put("vol", (double) prefs.getFloat(K_SFXVOL, 0.5f));
+        o.put("wallpaper", prefs.getBoolean(K_WALL, true));
+        o.put("place", prefs.getString(K_WNAME, "Buôn Ma Thuột"));
+        o.put("tv", castInfo()[0]);
+        return o.toString();
+    }
+
+    private static String joinArray(org.json.JSONArray a) throws Exception {
+        StringBuilder sb = new StringBuilder();
+        for (int i = 0; i < a.length(); i++) {
+            if (sb.length() > 0) sb.append(',');
+            sb.append(a.getString(i));
+        }
+        return sb.toString();
+    }
+
+    /** A change made from the phone page. It goes through the same extras the adb scripts use. */
+    private void applyFromPhone(String kind, String json) {
+        try {
+            org.json.JSONObject o = new org.json.JSONObject(json);
+            Intent i = new Intent();
+            if (kind.equals("dock")) i.putExtra("dock", joinArray(o.getJSONArray("dock")));
+            else if (kind.equals("hidden")) i.putExtra("hiddenlist", joinArray(o.getJSONArray("hidden")));
+            else if (kind.equals("city")) i.putExtra("city", o.getString("city"));
+            else if (kind.equals("sound")) {
+                i.putExtra("sound", o.getBoolean("on"));
+                i.putExtra("sfxvol", (float) o.getDouble("vol"));
+            } else if (kind.equals("wallpaper")) i.putExtra("wallpaper", o.getBoolean("on"));
+            else return;
+            handleExtras(i);
+            sfx.configure(prefs.getBoolean(K_SOUND, true), prefs.getFloat(K_SFXVOL, 0.5f));
+            view.setWallpaper(prefs.getBoolean(K_WALL, true));
+            if (wallpaperOn() && !view.hasWallpaper()) showWallpaper();
+            if (dirty) loadApps();
+        } catch (Exception ignored) { }
     }
 
     /** {name of the TV, Wi-Fi label, "off" if the built-in Chromecast receiver is disabled else "ok"} */

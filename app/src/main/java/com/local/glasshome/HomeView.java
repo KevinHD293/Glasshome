@@ -77,6 +77,8 @@ final class HomeView extends View {
     private AppEntry held = null;                           // app currently picked up
     private boolean menuOpen = false;
     private boolean castOpen = false, castOff = false;
+    private boolean phoneOpen = false;
+    private String phoneUrl = "", phonePin = "";
     private String castName = "", castNet = "";
     private int menuIdx = 0;
     private AppEntry menuApp = null;
@@ -239,6 +241,7 @@ final class HomeView extends View {
         ddOpen = false;
         menuOpen = false;
         castOpen = false;
+        closePhone();
         if (held != null) cancelMove();
         if (arrange) exitArrange();
         if (zone != ZD) { zone = ZD; fixZone(); }
@@ -388,6 +391,11 @@ final class HomeView extends View {
     // ------------------------------------------------------------------ keys
 
     boolean onNavDown(int k, KeyEvent e) {
+        if (phoneOpen) {   // only Back or a fresh OK press closes it (OK repeats from the long press are ignored)
+            boolean ok = (k == KeyEvent.KEYCODE_DPAD_CENTER || k == KeyEvent.KEYCODE_ENTER) && e.getRepeatCount() == 0;
+            if (k == KeyEvent.KEYCODE_BACK || ok) closePhone();
+            return true;
+        }
         if (castOpen) { castOpen = false; invalidate(); return true; }   // any key closes the Cast panel
         if (menuOpen) return menuDown(k, e);
         if (ddOpen) return ddDown(k, e);
@@ -613,6 +621,10 @@ final class HomeView extends View {
     /** Holding OK on a dock or grid tile starts arrange mode and picks the app up. */
     private void longPress() {
         if (ddOpen || menuOpen || held != null) return;
+        if (zone == ZT) {                       // long press on the gear: customize from the phone
+            if (topIdx == P_SET) openPhone();
+            return;
+        }
         if (zone != ZD && zone != ZG) return;
         openMenu();
     }
@@ -836,6 +848,7 @@ final class HomeView extends View {
         drawHint(c);
         drawMenu(c);
         drawCast(c);
+        drawPhone(c);
         if (anim || fading) postInvalidateOnAnimation(); else lastNs = 0;
     }
 
@@ -1274,6 +1287,87 @@ final class HomeView extends View {
         c.drawArc(rg, 270f, 90f, false, p);
         p.setStyle(Paint.Style.FILL);
         c.drawCircle(ox, oy, 0.08f * u, p);
+    }
+
+    // ----------------------------------------------------- phone settings panel
+
+    List<String> dockPackages() {
+        List<String> l = new ArrayList<>();
+        for (AppEntry e : dock) l.add(e.cn.getPackageName());
+        return l;
+    }
+
+    private void openPhone() {
+        String[] r = act.startPhone();
+        phoneUrl = r == null ? "" : r[0];
+        phonePin = r == null ? "" : r[1];
+        phoneOpen = true;
+        act.sfx.open();
+        invalidate();
+    }
+
+    void closePhone() {
+        if (!phoneOpen) return;
+        phoneOpen = false;
+        act.stopPhone();
+        invalidate();
+    }
+
+    private void drawPhone(Canvas c) {
+        if (!phoneOpen) return;
+        p.setStyle(Paint.Style.FILL);
+        p.setColor(0xB0000000);
+        c.drawRect(0, 0, W, H, p);
+
+        float w = Math.min(W - 2 * mx, 640 * dp), h = 340 * dp;
+        float x = (W - w) / 2f, y = (H - h) / 2f, pad = 28 * dp, maxW = w - 2 * pad;
+        rf.set(x, y, x + w, y + h);
+        p.setColor(0xF2222226);
+        c.drawRoundRect(rf, 28 * dp, 28 * dp, p);
+        p.setStyle(Paint.Style.STROKE);
+        p.setStrokeWidth(1.5f * dp);
+        p.setColor(0x50FFFFFF);
+        c.drawRoundRect(rf, 28 * dp, 28 * dp, p);
+        p.setStyle(Paint.Style.FILL);
+
+        text.setTextAlign(Paint.Align.LEFT);
+        text.setTypeface(light);
+        text.setTextSize(26 * dp);
+        text.setColor(Color.WHITE);
+        castLine(c, "Tuỳ chỉnh từ điện thoại", x + pad, y + 46 * dp, maxW);
+
+        text.setTypeface(regular);
+        if (phoneUrl.length() == 0) {
+            text.setTextSize(18 * dp);
+            text.setColor(0xFFFF8A80);
+            castLine(c, "Không mở được cổng mạng. Kiểm tra TV đã nối Wi-Fi hay mạng dây chưa.", x + pad, y + 110 * dp, maxW);
+            return;
+        }
+        text.setTextSize(17 * dp);
+        text.setColor(0xCCFFFFFF);
+        castLine(c, "1. Nối điện thoại vào cùng mạng Wi-Fi với TV.", x + pad, y + 88 * dp, maxW);
+        castLine(c, "2. Mở trình duyệt trên điện thoại và vào địa chỉ:", x + pad, y + 116 * dp, maxW);
+
+        text.setTypeface(regular);
+        text.setTextSize(28 * dp);
+        text.setColor(Color.WHITE);
+        castLine(c, phoneUrl, x + pad, y + 160 * dp, maxW);
+
+        text.setTextSize(17 * dp);
+        text.setColor(0xCCFFFFFF);
+        castLine(c, "3. Nhập mã PIN này khi trang hỏi:", x + pad, y + 204 * dp, maxW);
+
+        text.setTypeface(light);
+        text.setTextSize(52 * dp);
+        text.setLetterSpacing(0.25f);
+        text.setColor(Color.WHITE);
+        castLine(c, phonePin, x + pad, y + 262 * dp, maxW);
+        text.setLetterSpacing(0f);
+
+        text.setTypeface(regular);
+        text.setTextSize(14 * dp);
+        text.setColor(0x99FFFFFF);
+        castLine(c, "Bấm Back hoặc OK để đóng. Máy chủ chỉ chạy khi bảng này đang mở.", x + pad, y + 312 * dp, maxW);
     }
 
     // ---------------------------------------------------------------- cast panel
