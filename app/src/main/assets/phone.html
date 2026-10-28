@@ -1,0 +1,165 @@
+<!doctype html>
+<html lang="vi">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Glass Home</title>
+<style>
+  * { box-sizing: border-box; }
+  body { margin: 0; font-family: system-ui, -apple-system, "Segoe UI", Roboto, sans-serif; background: #0f1020; color: #fff; }
+  header { padding: 18px 18px 6px; }
+  header h1 { margin: 0; font-size: 22px; }
+  header div { color: #9aa0c8; font-size: 14px; margin-top: 4px; }
+  section { margin: 14px 12px; padding: 16px; border-radius: 18px; background: #191a30; }
+  h2 { margin: 0 0 12px; font-size: 16px; color: #b9c0ff; }
+  select, input[type=text], input[type=password] { width: 100%; font-size: 17px; padding: 12px; margin: 5px 0; border: 0; border-radius: 12px; background: #262844; color: #fff; }
+  button { width: 100%; font-size: 17px; font-weight: 600; padding: 13px; margin-top: 10px; border: 0; border-radius: 12px; background: #5b6cff; color: #fff; }
+  label.row { display: flex; align-items: center; gap: 10px; padding: 9px 2px; font-size: 16px; border-bottom: 1px solid #23253f; }
+  label.row:last-child { border-bottom: 0; }
+  input[type=checkbox] { width: 22px; height: 22px; }
+  input[type=range] { width: 100%; }
+  .note { color: #8c93bd; font-size: 13px; margin-top: 8px; }
+  .scroll { max-height: 320px; overflow: auto; }
+  #toast { position: fixed; left: 50%; bottom: 24px; transform: translateX(-50%); padding: 12px 18px; border-radius: 14px; background: #2d8f5b; color: #fff; opacity: 0; transition: opacity .25s; pointer-events: none; max-width: 90%; text-align: center; }
+  #err { color: #ff8a80; margin-top: 8px; font-size: 14px; }
+</style>
+</head>
+<body>
+<header>
+  <h1>Glass Home</h1>
+  <div id="tv">Tuỳ chỉnh từ điện thoại</div>
+</header>
+
+<section id="login">
+  <h2>Nhập mã PIN đang hiện trên TV</h2>
+  <input id="pin" type="password" inputmode="numeric" maxlength="4" placeholder="••••" autocomplete="off">
+  <button onclick="login()">Vào</button>
+  <div id="err"></div>
+</section>
+
+<div id="main" hidden>
+  <section>
+    <h2>Dock (4 app, từ trái sang phải)</h2>
+    <div id="dock"></div>
+    <button onclick="saveDock()">Lưu dock</button>
+    <div class="note">Thứ tự lưới app bên dưới thì sắp xếp ngay trên TV bằng nút Sắp xếp hoặc giữ OK.</div>
+  </section>
+
+  <section>
+    <h2>Ẩn app khỏi màn hình</h2>
+    <div id="hidden" class="scroll"></div>
+    <button onclick="saveHidden()">Lưu danh sách ẩn</button>
+    <div class="note">App bị ẩn vẫn được cài và vẫn chạy bình thường, chỉ không hiện trên màn hình chính.</div>
+  </section>
+
+  <section>
+    <h2>Thời tiết</h2>
+    <div class="note" id="place"></div>
+    <input id="city" type="text" placeholder="Tên thành phố, ví dụ: Da Nang">
+    <button onclick="saveCity()">Đặt thành phố</button>
+  </section>
+
+  <section>
+    <h2>Âm thanh</h2>
+    <label class="row"><input id="sound" type="checkbox"> Bật âm thanh khi di chuyển và mở app</label>
+    <input id="vol" type="range" min="0" max="100" step="5">
+    <button onclick="saveSound()">Lưu âm thanh</button>
+  </section>
+
+  <section>
+    <h2>Hình nền</h2>
+    <label class="row"><input id="wall" type="checkbox"> Hiện hình nền</label>
+    <button onclick="saveWall()">Lưu hình nền</button>
+  </section>
+</div>
+
+<div id="toast"></div>
+
+<script>
+var PIN = '', S = null;
+function $(id) { return document.getElementById(id); }
+function esc(s) { return String(s).replace(/[&<>"]/g, function (c) { return { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]; }); }
+
+function api(path, body) {
+  var opt = { headers: { 'X-Pin': PIN } };
+  if (body) { opt.method = 'POST'; opt.headers['Content-Type'] = 'application/json'; opt.body = JSON.stringify(body); }
+  return fetch(path, opt).then(function (r) {
+    if (r.status === 401) throw new Error('pin');
+    if (r.status === 429) throw new Error('lock');
+    if (!r.ok) throw new Error('http');
+    return r.json();
+  });
+}
+
+function toast(t, bad) {
+  var el = $('toast');
+  el.textContent = t;
+  el.style.background = bad ? '#b3413a' : '#2d8f5b';
+  el.style.opacity = 1;
+  setTimeout(function () { el.style.opacity = 0; }, 2400);
+}
+function fail(e) {
+  if (e && e.message === 'lock') toast('Đã khoá. Mở lại bảng trên TV để lấy mã mới.', true);
+  else if (e && e.message === 'pin') toast('Mã PIN không còn đúng.', true);
+  else toast('Không gửi được tới TV. Bảng trên TV còn mở không?', true);
+}
+
+function login() {
+  PIN = $('pin').value.trim();
+  api('/api/state').then(function (s) {
+    S = s;
+    $('login').hidden = true;
+    $('main').hidden = false;
+    render();
+  }).catch(function (e) {
+    $('err').textContent = e.message === 'lock' ? 'Sai quá 5 lần. Mở lại bảng trên TV để lấy mã mới.'
+      : e.message === 'pin' ? 'Mã PIN chưa đúng.' : 'Không kết nối được TV.';
+  });
+}
+
+function render() {
+  $('tv').textContent = 'Đang chỉnh: ' + (S.tv || 'TV');
+  var opts = S.apps.map(function (a) { return '<option value="' + esc(a.p) + '">' + esc(a.l) + '</option>'; }).join('');
+  var h = '';
+  for (var i = 0; i < 4; i++) h += '<select id="d' + i + '">' + opts + '</select>';
+  $('dock').innerHTML = h;
+  for (var j = 0; j < 4; j++) { if (S.dock[j]) $('d' + j).value = S.dock[j]; }
+
+  var hs = '';
+  S.apps.forEach(function (a) {
+    hs += '<label class="row"><input type="checkbox" data-p="' + esc(a.p) + '"' + (S.hidden.indexOf(a.p) >= 0 ? ' checked' : '') + '> ' + esc(a.l) + '</label>';
+  });
+  $('hidden').innerHTML = hs;
+
+  $('place').textContent = 'Đang dùng: ' + (S.place || '');
+  $('sound').checked = !!S.sound;
+  $('vol').value = Math.round((S.vol || 0) * 100);
+  $('wall').checked = !!S.wallpaper;
+}
+
+function saveDock() {
+  var d = [];
+  for (var i = 0; i < 4; i++) { var v = $('d' + i).value; if (v && d.indexOf(v) < 0) d.push(v); }
+  api('/api/dock', { dock: d }).then(function () { toast('Đã lưu dock'); }).catch(fail);
+}
+function saveHidden() {
+  var h = [];
+  var boxes = document.querySelectorAll('#hidden input[type=checkbox]');
+  for (var i = 0; i < boxes.length; i++) { if (boxes[i].checked) h.push(boxes[i].getAttribute('data-p')); }
+  api('/api/hidden', { hidden: h }).then(function () { toast('Đã lưu danh sách ẩn'); }).catch(fail);
+}
+function saveCity() {
+  var c = $('city').value.trim();
+  if (!c) return;
+  api('/api/city', { city: c }).then(function () { toast('Đang cập nhật thời tiết cho ' + c); $('place').textContent = 'Đang dùng: ' + c; }).catch(fail);
+}
+function saveSound() {
+  api('/api/sound', { on: $('sound').checked, vol: $('vol').value / 100 }).then(function () { toast('Đã lưu âm thanh'); }).catch(fail);
+}
+function saveWall() {
+  api('/api/wallpaper', { on: $('wall').checked }).then(function () { toast('Đã lưu hình nền'); }).catch(fail);
+}
+$('pin').addEventListener('keydown', function (e) { if (e.key === 'Enter') login(); });
+</script>
+</body>
+</html>
