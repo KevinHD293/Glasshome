@@ -48,6 +48,7 @@ public class MainActivity extends Activity {
     private static final String K_WDATA = "w_data";
     private static final String K_WNAME = "w_name";
     private static final String K_WALL = "wallpaper";
+    private static final String K_UIGLASS = "ui_glass", K_UISIZE = "ui_size", K_UILABEL = "ui_label", K_UICOLOR = "ui_color", K_UIPOP = "ui_pop";
     private static final String K_HIDDEN = "hidden";   // apps hidden from the home screen (comma separated packages)
     private static final String K_LAST = "last";
     private static final String K_ASKED = "asked_location";
@@ -83,6 +84,7 @@ public class MainActivity extends Activity {
         view.setWeather(weather);
         view.setPlace(prefs.getString(K_WNAME, "Buôn Ma Thuột"));
         view.setWallpaper(prefs.getBoolean(K_WALL, true));
+        applyUiToView();
         showWallpaper();
         requestLocationOnce();
         IntentFilter pf = new IntentFilter();
@@ -351,6 +353,55 @@ public class MainActivity extends Activity {
         }).start();
     }
 
+    // ---- look-and-feel options (the options panel on the TV and the phone page both use these) ----
+
+    void saveUi(boolean glass, int size, int label, boolean color, int pop) {
+        prefs.edit().putBoolean(K_UIGLASS, glass).putInt(K_UISIZE, size).putInt(K_UILABEL, label)
+                .putBoolean(K_UICOLOR, color).putInt(K_UIPOP, pop).apply();
+    }
+
+    private void applyUiToView() {
+        view.setUi(prefs.getBoolean(K_UIGLASS, false), prefs.getInt(K_UISIZE, 0), prefs.getInt(K_UILABEL, 2),
+                prefs.getBoolean(K_UICOLOR, true), prefs.getInt(K_UIPOP, 1));
+    }
+
+    // ---- "Dọn RAM": asks Android to kill the background processes of the other apps ----
+
+    private long freeRamMb(android.app.ActivityManager am) {
+        android.app.ActivityManager.MemoryInfo mi = new android.app.ActivityManager.MemoryInfo();
+        am.getMemoryInfo(mi);
+        return mi.availMem / (1024 * 1024);
+    }
+
+    /** Kills the background processes of every launchable app except this launcher and the system services. */
+    void cleanRam() {
+        final android.app.ActivityManager am = (android.app.ActivityManager) getSystemService(Context.ACTIVITY_SERVICE);
+        final long before = freeRamMb(am);
+        PackageManager pm = getPackageManager();
+        java.util.Set<String> pkgs = new java.util.HashSet<>();
+        String[] cats = { Intent.CATEGORY_LEANBACK_LAUNCHER, Intent.CATEGORY_LAUNCHER };
+        for (String cat : cats) {
+            for (ResolveInfo ri : pm.queryIntentActivities(new Intent(Intent.ACTION_MAIN).addCategory(cat), 0)) {
+                if (ri.activityInfo != null) pkgs.add(ri.activityInfo.packageName);
+            }
+        }
+        int n = 0;
+        for (String p : pkgs) {
+            if (p.equals(getPackageName()) || p.startsWith("com.realtek") || p.startsWith("com.google.android.inputmethod")
+                    || p.equals("com.android.systemui") || p.equals("android")) continue;
+            try { am.killBackgroundProcesses(p); n++; } catch (Exception ignored) { }
+        }
+        Toast.makeText(this, "Đang dọn RAM (" + n + " app)...", Toast.LENGTH_SHORT).show();
+        new android.os.Handler(android.os.Looper.getMainLooper()).postDelayed(new Runnable() {
+            @Override public void run() {
+                long after = freeRamMb(am), gain = after - before;
+                Toast.makeText(MainActivity.this, "Đã dọn RAM: còn trống " + after + " MB" + (gain > 0 ? " (+" + gain + " MB)" : ""),
+                        Toast.LENGTH_LONG).show();
+                if (view != null) view.tick();
+            }
+        }, 1500);
+    }
+
     // ---- customize from the phone browser (see PhoneServer and assets/phone.html) ----
 
     private final PhoneServer phone = new PhoneServer();
@@ -431,6 +482,13 @@ public class MainActivity extends Activity {
         o.put("wallpaper", prefs.getBoolean(K_WALL, true));
         o.put("place", prefs.getString(K_WNAME, "Buôn Ma Thuột"));
         o.put("tv", castInfo()[0]);
+        org.json.JSONObject ui = new org.json.JSONObject();
+        ui.put("glass", prefs.getBoolean(K_UIGLASS, false) ? 1 : 0);
+        ui.put("size", prefs.getInt(K_UISIZE, 0));
+        ui.put("label", prefs.getInt(K_UILABEL, 2));
+        ui.put("color", prefs.getBoolean(K_UICOLOR, true) ? 1 : 0);
+        ui.put("pop", prefs.getInt(K_UIPOP, 1));
+        o.put("ui", ui);
         return o.toString();
     }
 
@@ -447,6 +505,11 @@ public class MainActivity extends Activity {
     private void applyFromPhone(String kind, String json) {
         try {
             org.json.JSONObject o = new org.json.JSONObject(json);
+            if (kind.equals("ui")) {
+                saveUi(o.getInt("glass") == 1, o.getInt("size"), o.getInt("label"), o.getInt("color") == 1, o.getInt("pop"));
+                applyUiToView();
+                return;
+            }
             Intent i = new Intent();
             if (kind.equals("dock")) i.putExtra("dock", joinArray(o.getJSONArray("dock")));
             else if (kind.equals("hidden")) i.putExtra("hiddenlist", joinArray(o.getJSONArray("hidden")));

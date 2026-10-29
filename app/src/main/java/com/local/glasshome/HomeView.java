@@ -43,9 +43,10 @@ import java.util.Set;
  */
 final class HomeView extends View {
     private static final int ZT = 0, ZD = 1, ZG = 2;   // zones: top bar, dock, grid
-    private static final int COLS = 4, DOCK_MAX = 4;
-    private static final float POP = 1.07f;
-    private static final float HELD = 1.14f;
+    private static final int DOCK_MAX = 4;
+    private int cols = 4;                 // grid columns: 4 / 5 / 6 for large / medium / small icons
+    private float popTarget = 1.07f;      // scale of the selected tile
+    private float heldScale() { return Math.max(1.14f, popTarget + 0.07f); }
     private static final float[] GLOW_W = { 7f };
     private static final int[] GLOW_A = { 0x38 };
     private static final float[] FOG_Y = { -0.45f, -0.15f, 0.15f, 0.45f };
@@ -78,6 +79,16 @@ final class HomeView extends View {
     private boolean menuOpen = false;
     private boolean castOpen = false, castOff = false;
     private boolean phoneOpen = false;
+
+    // user options (options panel on the TV, or the phone page)
+    private boolean uiGlass = false, uiColor = true, colorFollow = true, optOpen = false;
+    private int uiSize = 0, uiLabel = 2, uiPop = 1, optIdx = 0, topRow = 0;
+    private float labelSp = 22f;
+    private final RectF ramRect = new RectF();
+    private static final String[] OPT_TITLE = { "Khay kính ở dock", "Cỡ icon ứng dụng", "Tên ứng dụng",
+            "Viền đổi màu theo app", "Phóng to khi chọn", "Tuỳ chỉnh từ điện thoại" };
+    private static final String[][] OPT_VALUES = { { "Tắt", "Bật" }, { "Lớn", "Vừa", "Nhỏ" }, { "Ẩn", "Nhỏ", "Vừa", "Lớn" },
+            { "Tắt", "Bật" }, { "Tắt", "Vừa", "Lớn" } };
     private String phoneUrl = "", phonePin = "";
     private String castName = "", castNet = "";
     private int menuIdx = 0;
@@ -146,7 +157,7 @@ final class HomeView extends View {
         setFocusable(true);
         pop.eps = 0.002f;
         pop.veps = 0.02f;
-        pop.snap(POP);
+        pop.snap(popTarget);
 
         // Fonts in app/src/main/assets/fonts/: the first file that exists wins, else the system font.
         light = font(ctx, "sans-serif-light", "fonts/MyriadPro-Light.otf", "fonts/Outfit-Light.ttf");
@@ -239,6 +250,7 @@ final class HomeView extends View {
 
     void goHome() {
         ddOpen = false;
+        optOpen = false;
         menuOpen = false;
         castOpen = false;
         closePhone();
@@ -311,7 +323,7 @@ final class HomeView extends View {
         padD = 24 * dp;
         gapD = 24 * dp;
         // dock and grid share one tile size and the same four columns, edge to edge between the margins
-        tileW = (W - 2 * mx - (COLS - 1) * gapD) / COLS;
+        tileW = (W - 2 * mx - (cols - 1) * gapD) / cols;
         tileH = tileW * 9f / 16f;
         cellW = tileW + gapD;
         slotW = tileW;
@@ -327,6 +339,12 @@ final class HomeView extends View {
             pill[i].set(right - pillH, 40 * dp, right, 40 * dp + pillH);
             right -= pillH + 16 * dp;
         }
+        bandRect(rg);
+        text.setTypeface(regular);
+        text.setTextSize(17 * dp);
+        text.setLetterSpacing(0f);
+        float rw = 16 * dp + 22 * dp + 8 * dp + text.measureText("Dọn RAM") + 18 * dp, rh = 40 * dp;
+        ramRect.set(rg.right - rw, rg.bottom + 12 * dp, rg.right, rg.bottom + 12 * dp + rh);
         scrimM.setScale(1f, H);
         scrimShader.setLocalMatrix(scrimM);
         scrimPaint.setShader(scrimShader);
@@ -339,14 +357,14 @@ final class HomeView extends View {
     }
 
     private void gridRect(int i, RectF r) {
-        float l = mx + (i % COLS) * cellW;
-        float t = gridTop + (i / COLS) * rowH;
+        float l = mx + (i % cols) * cellW;
+        float t = gridTop + (i / cols) * rowH;
         r.set(l, t, l + tileW, t + tileH);
     }
 
     private float scrollTarget() {
         if (zone != ZG) return 0;
-        int row = gridIdx / COLS;
+        int row = gridIdx / cols;
         return Math.max(0, gridTop + row * rowH + tileH + 64 * dp - H);
     }
 
@@ -354,7 +372,8 @@ final class HomeView extends View {
         if (W == 0) return;
         float infl, rad;
         if (zone == ZT) {
-            tmp.set(pill[topIdx]); infl = 4 * dp; rad = pillH / 2 + infl;
+            if (topRow == 1) { tmp.set(ramRect); infl = 4 * dp; rad = ramRect.height() / 2 + infl; }
+            else { tmp.set(pill[topIdx]); infl = 4 * dp; rad = pillH / 2 + infl; }
         } else if (zone == ZD && !dock.isEmpty()) {
             slot(dockIdx, tmp); infl = 0; rad = 18 * dp;
         } else if (zone == ZG && !grid.isEmpty()) {
@@ -377,20 +396,21 @@ final class HomeView extends View {
         if (focused != null) glowTgt = colorOf(focused);
         if (snap) {
             hx.snap(hx.t); hy.snap(hy.t); hw.snap(hw.t); hh.snap(hh.t); hr.snap(hr.t);
-            scroll.snap(scroll.t); gx.snap(gx.t); pop.snap(POP);
+            scroll.snap(scroll.t); gx.snap(gx.t); pop.snap(popTarget);
             glowCur = glowTgt;
         }
         invalidate();
     }
 
     private void focusMoved() {
-        pop.v = 1f; pop.vel = 0f; pop.t = POP;
+        pop.v = 1f; pop.vel = 0f; pop.t = popTarget;
         retarget(false);
     }
 
     // ------------------------------------------------------------------ keys
 
     boolean onNavDown(int k, KeyEvent e) {
+        if (optOpen) return optDown(k, e);
         if (phoneOpen) {   // only Back or a fresh OK press closes it (OK repeats from the long press are ignored)
             boolean ok = (k == KeyEvent.KEYCODE_DPAD_CENTER || k == KeyEvent.KEYCODE_ENTER) && e.getRepeatCount() == 0;
             if (k == KeyEvent.KEYCODE_BACK || ok) closePhone();
@@ -413,7 +433,7 @@ final class HomeView extends View {
             case KeyEvent.KEYCODE_BACK:
                 if (held != null) { cancelMove(); return true; }
                 if (arrange) { exitArrange(); return true; }
-                if (zone != ZD && !dock.isEmpty()) { zone = ZD; focusMoved(); }
+                if (zone != ZD && !dock.isEmpty()) { zone = ZD; topRow = 0; focusMoved(); }
                 return true; // a launcher never exits on Back
         }
         return false;
@@ -457,33 +477,37 @@ final class HomeView extends View {
 
     private void move(int dx, int dy) {
         if (held != null) { moveHeld(dx, dy); return; }
-        int oz = zone, ot = topIdx, od = dockIdx, og = gridIdx;
+        int oz = zone, ot = topIdx, od = dockIdx, og = gridIdx, orow = topRow;
         if (zone == ZT) {
-            if (dx != 0) topIdx = Math.max(0, Math.min(NP - 1, topIdx + dx));   // ends do not fall through
-            else if (dy > 0) {
+            if (topRow == 0) {
+                if (dx != 0) topIdx = Math.max(0, Math.min(NP - 1, topIdx + dx));   // ends do not fall through
+                else if (dy > 0) topRow = 1;                                        // down to the "Dọn RAM" button
+            } else if (dy < 0) {
+                topRow = 0;
+            } else if (dy > 0) {
                 if (!dock.isEmpty()) zone = ZD;
                 else if (!grid.isEmpty()) { zone = ZG; gridIdx = 0; }
             }
         } else if (zone == ZD) {
             if (dx != 0) dockIdx = Math.max(0, Math.min(dock.size() - 1, dockIdx + dx));
-            else if (dy < 0) zone = ZT;
+            else if (dy < 0) { zone = ZT; topRow = 1; }
             else if (dy > 0 && !grid.isEmpty()) { zone = ZG; gridIdx = Math.min(dockIdx, grid.size() - 1); }
         } else {
-            int row = gridIdx / COLS;
+            int row = gridIdx / cols;
             if (dx != 0) {
                 int n = gridIdx + dx;
-                if (n >= 0 && n < grid.size() && n / COLS == row) gridIdx = n;
+                if (n >= 0 && n < grid.size() && n / cols == row) gridIdx = n;
             } else if (dy > 0) {
-                int n = gridIdx + COLS;
+                int n = gridIdx + cols;
                 if (n < grid.size()) gridIdx = n;
-                else if ((row + 1) * COLS < grid.size()) gridIdx = grid.size() - 1;  // partial last row
+                else if ((row + 1) * cols < grid.size()) gridIdx = grid.size() - 1;  // partial last row
             } else if (dy < 0) {
-                if (row > 0) gridIdx -= COLS;
-                else if (!dock.isEmpty()) { zone = ZD; dockIdx = Math.min(gridIdx % COLS, dock.size() - 1); }
+                if (row > 0) gridIdx -= cols;
+                else if (!dock.isEmpty()) { zone = ZD; dockIdx = Math.min(gridIdx % cols, dock.size() - 1); }
                 else zone = ZT;
             }
         }
-        if (oz != zone || ot != topIdx || od != dockIdx || og != gridIdx) { act.sfx.move(); focusMoved(); }
+        if (oz != zone || ot != topIdx || od != dockIdx || og != gridIdx || orow != topRow) { act.sfx.move(); focusMoved(); }
     }
 
     private void activate() {
@@ -498,7 +522,8 @@ final class HomeView extends View {
         if (held != null) { drop(); return; }
         if (!(arrange && (zone == ZD || zone == ZG))) act.sfx.open();
         if (zone == ZT) {
-            if (topIdx == P_CAST) openCast();
+            if (topRow == 1) act.cleanRam();
+            else if (topIdx == P_CAST) openCast();
             else if (topIdx == P_ARR) toggleArrange();
             else if (topIdx == P_IN) { inputs = act.listInputs(); ddIdx = 0; ddOpen = true; invalidate(); }
             else if (topIdx == P_WIFI) act.openWifi();
@@ -622,7 +647,7 @@ final class HomeView extends View {
     private void longPress() {
         if (ddOpen || menuOpen || held != null) return;
         if (zone == ZT) {                       // long press on the gear: customize from the phone
-            if (topIdx == P_SET) openPhone();
+            if (topIdx == P_SET && topRow == 0) openOptions();   // long press on the gear: options
             return;
         }
         if (zone != ZD && zone != ZG) return;
@@ -703,13 +728,13 @@ final class HomeView extends View {
                 int n = i + dx;
                 if (n >= 0 && n < grid.size()) { grid.remove(i); grid.add(n, held); gridIdx = n; changed = true; }
             } else if (dy > 0) {
-                int n = Math.min(grid.size() - 1, i + COLS);
+                int n = Math.min(grid.size() - 1, i + cols);
                 if (n > i) { grid.remove(i); grid.add(n, held); gridIdx = n; changed = true; }
             } else if (dy < 0) {
-                if (i >= COLS) {
-                    grid.remove(i); grid.add(i - COLS, held); gridIdx = i - COLS; changed = true;
+                if (i >= cols) {
+                    grid.remove(i); grid.add(i - cols, held); gridIdx = i - cols; changed = true;
                 } else {
-                    int slotI = Math.min(i % COLS, dock.size());
+                    int slotI = Math.min(i % cols, dock.size());
                     if (dock.size() < DOCK_MAX) {
                         grid.remove(i);
                         dock.add(slotI, held);
@@ -792,6 +817,10 @@ final class HomeView extends View {
         drawHeader(c);
         drawGlow(c);
 
+        if (uiGlass && !dock.isEmpty()) {   // optional glass dock
+            rf.set(mx - padD, dockTop, mx + (dock.size() - 1) * cellW + tileW + padD, dockTop + bandH);
+            glass(c, rf, 36 * dp, 0x1E, false);
+        }
         // one band behind the three top icons: frosted (blurred wallpaper) + glass sheen
         bandRect(rf);
         float bandRad = rf.height() / 2f;
@@ -808,6 +837,7 @@ final class HomeView extends View {
             c.drawRoundRect(rf, bandRad, bandRad, p);
         }
         glass(c, rf, bandRad, 0x1E, false);
+        glass(c, ramRect, ramRect.height() / 2f, 0x26, false);   // the "Dọn RAM" button
 
         // the single glass highlight
         // liquid stretch: the highlight elongates a little along its direction of travel
@@ -819,13 +849,13 @@ final class HomeView extends View {
         } else {
             // Selected tile: an even outline in the app's colour, concentric with the (scaled) tile, so the gap
             // and the corner radius stay proportional to the tile on every side.
-            float sc = held != null ? HELD : pop.v;
+            float sc = held != null ? heldScale() : pop.v;
             float sw = 3 * dp, d = 3 * dp + sw / 2f;
             float cx = hx.v + hw.v / 2f, cy = hy.v + hh.v / 2f;
             float w2 = (hw.v * sc + ex) / 2f + d, h2 = (hh.v * sc + ey) / 2f + d;
             rf.set(cx - w2, cy - h2, cx + w2, cy + h2);
             float rad = 18 * dp * sc + d;
-            int col = glowCur & 0x00FFFFFF;
+            int col = colorFollow ? (glowCur & 0x00FFFFFF) : 0x00FFFFFF;
             p.setStyle(Paint.Style.STROKE);
             for (int i = 0; i < GLOW_W.length; i++) {      // glow spreading outwards (tiles are drawn on top of the inner half)
                 p.setStrokeWidth(GLOW_W[i] * dp);
@@ -842,6 +872,7 @@ final class HomeView extends View {
         drawDock(c);
         drawGrid(c);
         drawName(c);
+        drawWeatherRow(c);
         if (ddOpen) drawDropdown(c);
 
         c.restore();
@@ -849,6 +880,7 @@ final class HomeView extends View {
         drawMenu(c);
         drawCast(c);
         drawPhone(c);
+        drawOptions(c);
         if (anim || fading) postInvalidateOnAnimation(); else lastNs = 0;
     }
 
@@ -1061,7 +1093,7 @@ final class HomeView extends View {
         float dx = mx + cw + gap;                      // thin divider between the clock and the info block
         p.setStyle(Paint.Style.FILL);
         p.setColor(0x55FFFFFF);
-        c.drawRect(dx, base - 51 * dp, dx + bar, base + 11 * dp, p);   // as tall as the three-line block, centred on the clock
+        c.drawRect(dx, base - 41 * dp, dx + bar, base + 1 * dp, p);   // as tall as the two-line block, centred on the clock
         drawInfo(c, dx + bar + gap, base);
 
         text.setTypeface(regular);
@@ -1075,24 +1107,58 @@ final class HomeView extends View {
 
     // --------------------------------------------------------------- weather
 
-    /** Three compact lines: weather, date, lunar date. */
+    /** Two compact lines: date and lunar date (the weather now lives on the app-name row). */
     private void drawInfo(Canvas c, float bx, float base) {
-        float y1 = base - 36 * dp, y2 = base - 14 * dp, y3 = base + 8 * dp;   // even 22 dp line spacing
+        float y2 = base - 28 * dp, y3 = base - 4 * dp;   // 24 dp line spacing, centred on the clock
         text.setTypeface(regular);
-        Weather w = weather;
-        if (w != null) {
-            drawIcon(c, w, bx + 11 * dp, y1 - 6 * dp, 22 * dp);
-            text.setTextSize(20 * dp);
-            text.setColor(Color.WHITE);
-            String l1 = Math.round(w.temp) + "°C " + w.text() + (place.length() > 0 ? " · " + place : "");
-            c.drawText(l1, bx + 30 * dp, y1, text);
-        }
         text.setTextSize(14.5f * dp);
         text.setLetterSpacing(0.14f);
         text.setColor(0xCCFFFFFF);
         c.drawText(dateStr, bx, y2, text);
         c.drawText(lunarStr, bx, y3, text);
         text.setLetterSpacing(0f);
+    }
+
+    private String weatherSub(Weather w) {
+        return w.text() + (place.length() > 0 ? " · " + place : "");
+    }
+
+    /** Width of the weather block (icon + text), 0 when there is no weather yet. */
+    private float weatherWidth() {
+        Weather w = weather;
+        if (w == null) return 0f;
+        text.setLetterSpacing(0f);
+        text.setTypeface(light);
+        text.setTextSize(34 * dp);
+        float a = text.measureText(Math.round(w.temp) + "°C");
+        text.setTypeface(regular);
+        text.setTextSize(15 * dp);
+        float b = text.measureText(weatherSub(w));
+        return 36 * dp + 14 * dp + Math.max(a, b);
+    }
+
+    /** Weather at the right edge, vertically level with the big app name. */
+    private void drawWeatherRow(Canvas c) {
+        Weather w = weather;
+        if (w == null) return;
+        float y0 = dockTop - 36 * dp;   // baseline of the big app name
+        float rx = W - mx;
+        text.setLetterSpacing(0f);
+        text.setTextAlign(Paint.Align.RIGHT);
+        text.setTypeface(light);
+        text.setTextSize(34 * dp);
+        text.setColor(Color.WHITE);
+        String t = Math.round(w.temp) + "°C";
+        float aw = text.measureText(t);
+        c.drawText(t, rx, y0 - 12 * dp, text);
+        text.setTypeface(regular);
+        text.setTextSize(15 * dp);
+        text.setColor(0xCCFFFFFF);
+        String sub = weatherSub(w);
+        float bw = text.measureText(sub);
+        c.drawText(sub, rx, y0 + 8 * dp, text);
+        text.setTextAlign(Paint.Align.LEFT);
+        drawIcon(c, w, rx - Math.max(aw, bw) - 14 * dp - 18 * dp, y0 - 14 * dp, 36 * dp);
     }
 
     private void stroke(float width, int color) {
@@ -1241,9 +1307,49 @@ final class HomeView extends View {
             else if (i == P_WIFI) iconWifi(c, cx, cy, u);
             else iconGear(c, cx, cy, u);
         }
+        // "Dọn RAM" button: rocket + label
+        iconRocket(c, ramRect.left + 16 * dp + 11 * dp, ramRect.centerY(), 22 * dp);
+        text.setTypeface(regular);
+        text.setTextSize(17 * dp);
+        text.setLetterSpacing(0f);
+        text.setTextAlign(Paint.Align.LEFT);
+        text.setColor(Color.WHITE);
+        Paint.FontMetrics rfm = text.getFontMetrics();
+        c.drawText("Dọn RAM", ramRect.left + 16 * dp + 22 * dp + 8 * dp, ramRect.centerY() - (rfm.ascent + rfm.descent) / 2f, text);
         p.setStyle(Paint.Style.FILL);
         p.setStrokeCap(Paint.Cap.BUTT);
         p.setStrokeJoin(Paint.Join.MITER);
+    }
+
+    /** Rocket: pointed body with a round window, two fins and a flame. */
+    private void iconRocket(Canvas c, float cx, float cy, float sz) {
+        float u = sz / 2f;
+        p.setStyle(Paint.Style.FILL);
+        p.setColor(0xF2FFFFFF);
+        path.reset();
+        path.setFillType(Path.FillType.EVEN_ODD);
+        path.moveTo(cx, cy - 1.0f * u);
+        path.quadTo(cx + 0.62f * u, cy - 0.45f * u, cx + 0.42f * u, cy + 0.45f * u);
+        path.lineTo(cx - 0.42f * u, cy + 0.45f * u);
+        path.quadTo(cx - 0.62f * u, cy - 0.45f * u, cx, cy - 1.0f * u);
+        path.close();
+        path.addCircle(cx, cy - 0.25f * u, 0.2f * u, Path.Direction.CCW);
+        c.drawPath(path, p);
+        path.reset();
+        path.setFillType(Path.FillType.WINDING);
+        path.moveTo(cx - 0.42f * u, cy);
+        path.lineTo(cx - 0.9f * u, cy + 0.75f * u);
+        path.lineTo(cx - 0.42f * u, cy + 0.45f * u);
+        path.close();
+        path.moveTo(cx + 0.42f * u, cy);
+        path.lineTo(cx + 0.9f * u, cy + 0.75f * u);
+        path.lineTo(cx + 0.42f * u, cy + 0.45f * u);
+        path.close();
+        path.moveTo(cx - 0.2f * u, cy + 0.62f * u);
+        path.lineTo(cx, cy + 1.05f * u);
+        path.lineTo(cx + 0.2f * u, cy + 0.62f * u);
+        path.close();
+        c.drawPath(path, p);
     }
 
     /** HDMI plug: solid body with chamfered bottom corners and four pin slits. */
@@ -1287,6 +1393,139 @@ final class HomeView extends View {
         c.drawArc(rg, 270f, 90f, false, p);
         p.setStyle(Paint.Style.FILL);
         c.drawCircle(ox, oy, 0.08f * u, p);
+    }
+
+    // -------------------------------------------------------------- options panel
+
+    private int optGet(int i) {
+        switch (i) {
+            case 0: return uiGlass ? 1 : 0;
+            case 1: return uiSize;
+            case 2: return uiLabel;
+            case 3: return uiColor ? 1 : 0;
+            default: return uiPop;
+        }
+    }
+
+    private void optSet(int i, int v) {
+        switch (i) {
+            case 0: uiGlass = v == 1; break;
+            case 1: uiSize = v; break;
+            case 2: uiLabel = v; break;
+            case 3: uiColor = v == 1; break;
+            default: uiPop = v; break;
+        }
+        applyUi(true);
+    }
+
+    private void optCycle(int d) {
+        int n = OPT_VALUES[optIdx].length;
+        optSet(optIdx, (optGet(optIdx) + d + n) % n);
+        act.sfx.move();
+    }
+
+    private void openOptions() {
+        optOpen = true;
+        optIdx = 0;
+        act.sfx.open();
+        invalidate();
+    }
+
+    private boolean optDown(int k, KeyEvent e) {
+        int n = OPT_TITLE.length;
+        switch (k) {
+            case KeyEvent.KEYCODE_DPAD_UP: optIdx = Math.max(0, optIdx - 1); break;
+            case KeyEvent.KEYCODE_DPAD_DOWN: optIdx = Math.min(n - 1, optIdx + 1); break;
+            case KeyEvent.KEYCODE_DPAD_LEFT: if (optIdx < n - 1) optCycle(-1); break;
+            case KeyEvent.KEYCODE_DPAD_RIGHT: if (optIdx < n - 1) optCycle(1); break;
+            case KeyEvent.KEYCODE_DPAD_CENTER:
+            case KeyEvent.KEYCODE_ENTER:
+            case KeyEvent.KEYCODE_NUMPAD_ENTER:
+                if (e.getRepeatCount() == 0) {
+                    if (optIdx == n - 1) { optOpen = false; openPhone(); }
+                    else optCycle(1);
+                }
+                break;
+            case KeyEvent.KEYCODE_BACK: optOpen = false; break;
+        }
+        invalidate();
+        return true;
+    }
+
+    /** Recomputes everything derived from the options; persist = also save them. */
+    private void applyUi(boolean persist) {
+        cols = uiSize == 1 ? 5 : uiSize == 2 ? 6 : 4;
+        labelSp = uiLabel == 1 ? 16f : uiLabel == 3 ? 28f : 22f;
+        popTarget = uiPop == 0 ? 1f : uiPop == 2 ? 1.15f : 1.07f;
+        colorFollow = uiColor;
+        pop.t = popTarget;
+        relayout();
+        retarget(false);
+        if (persist) act.saveUi(uiGlass, uiSize, uiLabel, uiColor, uiPop);
+        invalidate();
+    }
+
+    /** Called by the activity with the saved options. */
+    void setUi(boolean glass, int size, int label, boolean color, int popMode) {
+        uiGlass = glass;
+        uiSize = Math.max(0, Math.min(2, size));
+        uiLabel = Math.max(0, Math.min(3, label));
+        uiColor = color;
+        uiPop = Math.max(0, Math.min(2, popMode));
+        applyUi(false);
+        retarget(true);
+    }
+
+    private void drawOptions(Canvas c) {
+        if (!optOpen) return;
+        p.setStyle(Paint.Style.FILL);
+        p.setColor(0xB0000000);
+        c.drawRect(0, 0, W, H, p);
+
+        int n = OPT_TITLE.length;
+        float w = Math.min(W - 2 * mx, 600 * dp), rowH4 = 50 * dp, titleH = 70 * dp;
+        float h = titleH + n * rowH4 + 18 * dp;
+        float x = (W - w) / 2f, y = (H - h) / 2f, pad = 26 * dp;
+        rf.set(x, y, x + w, y + h);
+        p.setColor(0xF2222226);
+        c.drawRoundRect(rf, 28 * dp, 28 * dp, p);
+        p.setStyle(Paint.Style.STROKE);
+        p.setStrokeWidth(1.5f * dp);
+        p.setColor(0x50FFFFFF);
+        c.drawRoundRect(rf, 28 * dp, 28 * dp, p);
+        p.setStyle(Paint.Style.FILL);
+
+        text.setTextAlign(Paint.Align.LEFT);
+        text.setTypeface(light);
+        text.setTextSize(26 * dp);
+        text.setColor(Color.WHITE);
+        c.drawText("Tuỳ chỉnh giao diện", x + pad, y + 46 * dp, text);
+
+        text.setTypeface(regular);
+        text.setTextSize(20 * dp);
+        Paint.FontMetrics fm = text.getFontMetrics();
+        for (int i = 0; i < n; i++) {
+            float top = y + titleH + i * rowH4;
+            float by = top + rowH4 / 2f - (fm.ascent + fm.descent) / 2f;
+            if (i == optIdx) {
+                tmp.set(x + 10 * dp, top + 3 * dp, x + w - 10 * dp, top + rowH4 - 3 * dp);
+                p.setColor(0x55FFFFFF);
+                c.drawRoundRect(tmp, 16 * dp, 16 * dp, p);
+            }
+            text.setTextAlign(Paint.Align.LEFT);
+            text.setColor(Color.WHITE);
+            c.drawText(OPT_TITLE[i], x + pad, by, text);
+            text.setTextAlign(Paint.Align.RIGHT);
+            if (i < n - 1) {
+                String v = OPT_VALUES[i][optGet(i)];
+                text.setColor(i == optIdx ? Color.WHITE : 0xB3FFFFFF);
+                c.drawText(i == optIdx ? "‹  " + v + "  ›" : v, x + w - pad, by, text);
+            } else {
+                text.setColor(0xB3FFFFFF);
+                c.drawText("›", x + w - pad, by, text);
+            }
+        }
+        text.setTextAlign(Paint.Align.LEFT);
     }
 
     // ----------------------------------------------------- phone settings panel
@@ -1507,27 +1746,27 @@ final class HomeView extends View {
         text.setTypeface(light);
         text.setTextSize(52 * dp);
         text.setColor(Color.WHITE);
-        CharSequence s = TextUtils.ellipsize(dock.get(dockIdx).label, text, W - 2 * mx, TextUtils.TruncateAt.END);
+        CharSequence s = TextUtils.ellipsize(dock.get(dockIdx).label, text, W - 2 * mx - weatherWidth() - 30 * dp, TextUtils.TruncateAt.END);
         c.drawText(s, 0, s.length(), mx, dockTop - 36 * dp, text);
     }
 
     private void drawDock(Canvas c) {
         for (int i = 0; i < dock.size(); i++) {
             slot(i, tmp);
-            drawArt(c, dock.get(i), tmp, (zone == ZD && i == dockIdx) ? (held != null ? HELD : pop.v) : 1f);
+            drawArt(c, dock.get(i), tmp, (zone == ZD && i == dockIdx) ? (held != null ? heldScale() : pop.v) : 1f);
         }
     }
 
     private void drawGrid(Canvas c) {
         text.setTypeface(regular);
-        text.setTextSize(22 * dp);
+        text.setTextSize(labelSp * dp);
         for (int i = 0; i < grid.size(); i++) {
             gridRect(i, tmp);
             if (tmp.bottom + 40 * dp - scroll.v < 0 || tmp.top - scroll.v > H) continue;
             boolean f = zone == ZG && i == gridIdx;
-            float sc = f ? (held != null ? HELD : pop.v) : 1f;
+            float sc = f ? (held != null ? heldScale() : pop.v) : 1f;
             drawArt(c, grid.get(i), tmp, sc);
-            if (f) {
+            if (f && uiLabel > 0) {
                 float extra = tmp.height() * (sc - 1f) / 2f;
                 text.setTextAlign(Paint.Align.CENTER);
                 text.setColor(Color.WHITE);
