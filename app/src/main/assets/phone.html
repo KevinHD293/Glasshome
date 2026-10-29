@@ -19,6 +19,14 @@
   input[type=checkbox] { width: 22px; height: 22px; }
   input[type=range] { width: 100%; }
   .lab { display: block; margin-top: 10px; color: #b9c0ff; font-size: 14px; }
+  .walls { display: grid; grid-template-columns: repeat(2, 1fr); gap: 10px; margin-top: 10px; }
+  .wc { background: #262844; border-radius: 12px; padding: 8px; text-align: center; }
+  .wc.sel { outline: 2px solid #5b6cff; }
+  .wc img { width: 100%; border-radius: 8px; display: block; }
+  .wc .nm { padding: 26px 0; color: #b9c0ff; font-size: 15px; }
+  .wc button { margin-top: 6px; padding: 9px; font-size: 14px; }
+  .wc button.del { background: #8c3a36; }
+  input[type=file] { width: 100%; font-size: 15px; padding: 10px; border-radius: 12px; background: #262844; color: #fff; }
   .note { color: #8c93bd; font-size: 13px; margin-top: 8px; }
   .scroll { max-height: 320px; overflow: auto; }
   #toast { position: fixed; left: 50%; bottom: 24px; transform: translateX(-50%); padding: 12px 18px; border-radius: 14px; background: #2d8f5b; color: #fff; opacity: 0; transition: opacity .25s; pointer-events: none; max-width: 90%; text-align: center; }
@@ -40,7 +48,7 @@
 
 <div id="main" hidden>
   <section>
-    <h2>Dock (4 app, từ trái sang phải)</h2>
+    <h2>Dock (từ trái sang phải; số ô theo cỡ icon)</h2>
     <div id="dock"></div>
     <button onclick="saveDock()">Lưu dock</button>
     <div class="note">Thứ tự lưới app bên dưới thì sắp xếp ngay trên TV bằng nút Sắp xếp hoặc giữ OK.</div>
@@ -86,6 +94,10 @@
     <h2>Hình nền</h2>
     <label class="row"><input id="wall" type="checkbox"> Hiện hình nền</label>
     <button onclick="saveWall()">Lưu hình nền</button>
+    <h2 style="margin-top:18px">Thêm ảnh của bạn</h2>
+    <input id="file" type="file" accept="image/*" onchange="pick()">
+    <div class="note">Chọn một ảnh trong điện thoại, ảnh được thu nhỏ rồi gửi sang TV và dùng làm hình nền ngay. Ảnh ngang 16:9 đẹp nhất, ảnh khác bị cắt phần giữa. Lưu tối đa 12 ảnh.</div>
+    <div id="walls" class="walls"></div>
   </section>
 </div>
 
@@ -137,9 +149,11 @@ function render() {
   $('tv').textContent = 'Đang chỉnh: ' + (S.tv || 'TV');
   var opts = S.apps.map(function (a) { return '<option value="' + esc(a.p) + '">' + esc(a.l) + '</option>'; }).join('');
   var h = '';
-  for (var i = 0; i < 4; i++) h += '<select id="d' + i + '">' + opts + '</select>';
+  var nd = S.dockMax || 4;
+  for (var i = 0; i < nd; i++) h += '<select id="d' + i + '">' + opts + '</select>';
   $('dock').innerHTML = h;
-  for (var j = 0; j < 4; j++) { if (S.dock[j]) $('d' + j).value = S.dock[j]; }
+  for (var j = 0; j < nd; j++) { if (S.dock[j]) $('d' + j).value = S.dock[j]; }
+  renderWalls();
 
   var hs = '';
   S.apps.forEach(function (a) {
@@ -158,7 +172,8 @@ function render() {
 
 function saveDock() {
   var d = [];
-  for (var i = 0; i < 4; i++) { var v = $('d' + i).value; if (v && d.indexOf(v) < 0) d.push(v); }
+  var nd = S.dockMax || 4;
+  for (var i = 0; i < nd; i++) { var v = $('d' + i).value; if (v && d.indexOf(v) < 0) d.push(v); }
   api('/api/dock', { dock: d }).then(function () { toast('Đã lưu dock'); }).catch(fail);
 }
 function saveHidden() {
@@ -169,7 +184,48 @@ function saveHidden() {
 }
 function saveUi() {
   api('/api/ui', { glass: +$('ui_glass').value, size: +$('ui_size').value, label: +$('ui_label').value, color: +$('ui_color').value, pop: +$('ui_pop').value })
-    .then(function () { toast('Đã lưu giao diện'); }).catch(fail);
+    .then(function () { toast('Đã lưu giao diện'); refresh(); }).catch(fail);
+}
+function refresh() {
+  api('/api/state').then(function (s) { S = s; render(); }).catch(fail);
+}
+function renderWalls() {
+  var w = S.walls || { sel: 'builtin', items: [] };
+  var h = '<div class="wc' + (w.sel === 'builtin' ? ' sel' : '') + '"><div class="nm">Hình mặc định</div><button onclick="useWall(\'builtin\')">Dùng</button></div>';
+  w.items.forEach(function (it) {
+    h += '<div class="wc' + (w.sel === it.id ? ' sel' : '') + '"><img src="' + it.t + '"><button onclick="useWall(\'' + it.id + '\')">Dùng</button><button class="del" onclick="delWall(\'' + it.id + '\')">Xoá</button></div>';
+  });
+  $('walls').innerHTML = h;
+}
+function useWall(id) {
+  api('/api/wallsel', { id: id }).then(function () { toast('Đã đổi hình nền'); refresh(); }).catch(fail);
+}
+function delWall(id) {
+  if (!confirm('Xoá ảnh này khỏi TV?')) return;
+  api('/api/walldel', { id: id }).then(function () { toast('Đã xoá ảnh'); refresh(); }).catch(fail);
+}
+function pick() {
+  var f = $('file').files[0];
+  if (!f) return;
+  toast('Đang xử lý ảnh...');
+  var img = new Image(), url = URL.createObjectURL(f);
+  img.onload = function () {
+    var max = 1920, sc = Math.min(1, max / Math.max(img.width, img.height));
+    var cv = document.createElement('canvas');
+    cv.width = Math.round(img.width * sc);
+    cv.height = Math.round(img.height * sc);
+    cv.getContext('2d').drawImage(img, 0, 0, cv.width, cv.height);
+    URL.revokeObjectURL(url);
+    cv.toBlob(function (b) {
+      if (!b) { toast('Không đọc được ảnh này', true); return; }
+      fetch('/api/upload', { method: 'POST', headers: { 'X-Pin': PIN, 'Content-Type': 'image/jpeg' }, body: b })
+        .then(function (r) { if (!r.ok) throw new Error('http'); return r.json(); })
+        .then(function () { toast('Đã thêm ảnh và đặt làm hình nền'); $('file').value = ''; refresh(); })
+        .catch(fail);
+    }, 'image/jpeg', 0.88);
+  };
+  img.onerror = function () { toast('Không đọc được ảnh này', true); };
+  img.src = url;
 }
 function saveCity() {
   var c = $('city').value.trim();
