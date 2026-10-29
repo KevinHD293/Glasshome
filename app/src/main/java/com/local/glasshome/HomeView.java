@@ -6,6 +6,10 @@ import android.util.AttributeSet;
 import android.view.LayoutInflater;
 import android.view.View;
 import android.widget.FrameLayout;
+import android.widget.ImageView;
+import android.widget.TextView;
+import android.view.KeyEvent;
+import java.util.List;
 
 public class HomeView extends FrameLayout {
 
@@ -28,8 +32,7 @@ public class HomeView extends FrameLayout {
     }
 
     private void init(Context context) {
-        // Inflate layout hoặc tích hợp widget_calendar_weather
-        // Thắt chặt ánh xạ 2 Widget mới thay thế phần thời tiết cũ ở góc phải
+        // Inflate the layout containing widgets if needed, or setup views
         setupWidgets();
     }
 
@@ -37,12 +40,9 @@ public class HomeView extends FrameLayout {
         calendarWidget = findViewById(R.id.widget_calendar_root);
         weatherWidget = findViewById(R.id.widget_weather_root);
 
-        // Bật tính năng Focus cho remote Android TV
         if (calendarWidget != null) {
             calendarWidget.setFocusable(true);
             calendarWidget.setFocusableInTouchMode(true);
-
-            // Bấm OK/Click trên Widget Lịch -> Mở Activity Lịch âm dương chi tiết
             calendarWidget.setOnClickListener(new OnClickListener() {
                 @Override
                 public void onClick(View v) {
@@ -55,8 +55,6 @@ public class HomeView extends FrameLayout {
         if (weatherWidget != null) {
             weatherWidget.setFocusable(true);
             weatherWidget.setFocusableInTouchMode(true);
-
-            // Bấm OK/Click trên Widget Thời tiết -> Mở Activity Thời tiết chi tiết
             weatherWidget.setOnClickListener(new OnClickListener() {
                 @Override
                 public void onClick(View v) {
@@ -65,5 +63,71 @@ public class HomeView extends FrameLayout {
                 }
             });
         }
+    }
+
+    // --- Stub methods required by MainActivity to maintain full project compilation ---
+
+    public void tick() {
+        // Periodic tick update
+    }
+
+    public void setWeather(Weather weather) {
+        // Update weather info on widget
+    }
+
+    public void setPlace(String place) {
+        // Update place name
+    }
+
+    public void setWallpaper(boolean enabled) {
+        // Toggle wallpaper
+    }
+
+    public void refreshWifi() {
+        // Refresh wifi state
+    }
+
+    public void saveFocus() {
+        // Save current focus state
+    }
+
+    public void closePhone() {
+        // Close phone server
+    }
+
+    public boolean hasWallpaper() {
+        return true;
+    }
+
+    public void goHome() {
+        // Go home action
+    }
+
+    public void setApps(List<AppEntry> list, String dock, String gridOrder, String last) {
+        // Set application grid and dock
+    }
+
+    public void showWallpaper(String path) {
+        // Show custom wallpaper
+    }
+
+    public void setUi(boolean glass, int size, int label, boolean arg4, int arg5) {
+        // Set UI configuration
+    }
+
+    public List<String> dockPackages() {
+        return null;
+    }
+
+    public int dockMax() {
+        return 5;
+    }
+
+    public boolean onNavDown(int k, KeyEvent e) {
+        return false;
+    }
+
+    public boolean onNavUp(int k, KeyEvent e) {
+        return false;
     }
 }
