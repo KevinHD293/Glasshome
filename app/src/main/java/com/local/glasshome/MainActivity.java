@@ -49,6 +49,7 @@ public class MainActivity extends Activity {
     private static final String K_WNAME = "w_name";
     private static final String K_WALL = "wallpaper";
     private static final String K_UIGLASS = "ui_glass", K_UISIZE = "ui_size", K_UILABEL = "ui_label", K_UICOLOR = "ui_color", K_UIPOP = "ui_pop";
+    private static final String K_WALLSEL = "wall_sel";   // "builtin" or the id of an uploaded photo (w_<time>.jpg)
     private static final String K_HIDDEN = "hidden";   // apps hidden from the home screen (comma separated packages)
     private static final String K_LAST = "last";
     private static final String K_ASKED = "asked_location";
@@ -306,7 +307,75 @@ public class MainActivity extends Activity {
     /** The wallpaper is the single picture assets/wallpaper.jpg. */
     private void showWallpaper() {
         if (view == null || !wallpaperOn()) return;
-        view.showWallpaper("asset:wallpaper.jpg");
+        String sel = prefs.getString(K_WALLSEL, "builtin");
+        java.io.File f = sel.startsWith("w_") ? new java.io.File(new java.io.File(getFilesDir(), "walls"), sel) : null;
+        if (f != null && f.isFile()) view.showWallpaper("file:" + f.getAbsolutePath());
+        else view.showWallpaper("asset:wallpaper.jpg");
+    }
+
+    // ---- photos added from the phone page ----
+
+    private java.io.File wallDir() { return new java.io.File(getFilesDir(), "walls"); }
+
+    private String thumbData(java.io.File f) {
+        try {
+            android.graphics.BitmapFactory.Options o = new android.graphics.BitmapFactory.Options();
+            o.inJustDecodeBounds = true;
+            android.graphics.BitmapFactory.decodeFile(f.getAbsolutePath(), o);
+            int s = 1;
+            while (o.outWidth / (s * 2) >= 240) s *= 2;
+            android.graphics.BitmapFactory.Options o2 = new android.graphics.BitmapFactory.Options();
+            o2.inSampleSize = s;
+            android.graphics.Bitmap b = android.graphics.BitmapFactory.decodeFile(f.getAbsolutePath(), o2);
+            if (b == null) return "";
+            int w = 200, h = Math.max(1, b.getHeight() * w / b.getWidth());
+            android.graphics.Bitmap t = android.graphics.Bitmap.createScaledBitmap(b, w, h, true);
+            java.io.ByteArrayOutputStream bo = new java.io.ByteArrayOutputStream();
+            t.compress(android.graphics.Bitmap.CompressFormat.JPEG, 70, bo);
+            if (t != b) t.recycle();
+            b.recycle();
+            return "data:image/jpeg;base64," + android.util.Base64.encodeToString(bo.toByteArray(), android.util.Base64.NO_WRAP);
+        } catch (Throwable e) {
+            return "";
+        }
+    }
+
+    /** A photo uploaded from the phone page (already shrunk by the browser). Runs on the server's worker thread. */
+    private String saveUpload(byte[] data) {
+        try {
+            android.graphics.BitmapFactory.Options o = new android.graphics.BitmapFactory.Options();
+            o.inJustDecodeBounds = true;
+            android.graphics.BitmapFactory.decodeByteArray(data, 0, data.length, o);
+            if (o.outWidth <= 0 || o.outHeight <= 0) return "{\"error\":\"bad image\"}";
+            int s = 1;
+            while (o.outWidth / (s * 2) >= 2048) s *= 2;
+            android.graphics.BitmapFactory.Options o2 = new android.graphics.BitmapFactory.Options();
+            o2.inSampleSize = s;
+            android.graphics.Bitmap b = android.graphics.BitmapFactory.decodeByteArray(data, 0, data.length, o2);
+            if (b == null) return "{\"error\":\"bad image\"}";
+            java.io.File dir = wallDir();
+            dir.mkdirs();
+            java.io.File[] old = dir.listFiles();
+            if (old != null && old.length >= 12) {   // keep at most 12 photos
+                java.util.Arrays.sort(old);
+                for (int i = 0; i < old.length - 11; i++) old[i].delete();
+            }
+            String id = "w_" + System.currentTimeMillis() + ".jpg";
+            java.io.FileOutputStream out = new java.io.FileOutputStream(new java.io.File(dir, id));
+            b.compress(android.graphics.Bitmap.CompressFormat.JPEG, 90, out);
+            out.close();
+            b.recycle();
+            prefs.edit().putString(K_WALLSEL, id).putBoolean(K_WALL, true).apply();
+            runOnUiThread(new Runnable() {
+                @Override public void run() {
+                    view.setWallpaper(true);
+                    showWallpaper();
+                }
+            });
+            return "{\"ok\":true}";
+        } catch (Throwable t) {
+            return "{\"error\":\"failed\"}";
+        }
     }
 
     // ---- weather (Open-Meteo): fetched on return to the home screen, at most every 30 minutes ----
@@ -416,6 +485,7 @@ public class MainActivity extends Activity {
                 });
             }
             @Override public String page() { return readAsset("phone.html"); }
+            @Override public String upload(byte[] image) { return saveUpload(image); }
         });
         return url == null ? null : new String[] { url, phone.pin() };
     }
@@ -489,6 +559,22 @@ public class MainActivity extends Activity {
         ui.put("color", prefs.getBoolean(K_UICOLOR, true) ? 1 : 0);
         ui.put("pop", prefs.getInt(K_UIPOP, 1));
         o.put("ui", ui);
+        o.put("dockMax", view.dockMax());
+        org.json.JSONObject walls = new org.json.JSONObject();
+        walls.put("sel", prefs.getString(K_WALLSEL, "builtin"));
+        org.json.JSONArray items = new org.json.JSONArray();
+        java.io.File[] files = wallDir().listFiles();
+        if (files != null) {
+            java.util.Arrays.sort(files, java.util.Collections.reverseOrder());   // newest first
+            for (java.io.File f : files) {
+                org.json.JSONObject j = new org.json.JSONObject();
+                j.put("id", f.getName());
+                j.put("t", thumbData(f));
+                items.put(j);
+            }
+        }
+        walls.put("items", items);
+        o.put("walls", walls);
         return o.toString();
     }
 
@@ -508,6 +594,26 @@ public class MainActivity extends Activity {
             if (kind.equals("ui")) {
                 saveUi(o.getInt("glass") == 1, o.getInt("size"), o.getInt("label"), o.getInt("color") == 1, o.getInt("pop"));
                 applyUiToView();
+                return;
+            }
+            if (kind.equals("wallsel")) {
+                String id = o.getString("id");
+                if (id.equals("builtin") || (id.matches("w_[0-9]+\\.jpg") && new java.io.File(wallDir(), id).isFile())) {
+                    prefs.edit().putString(K_WALLSEL, id).putBoolean(K_WALL, true).apply();
+                    view.setWallpaper(true);
+                    showWallpaper();
+                }
+                return;
+            }
+            if (kind.equals("walldel")) {
+                String id = o.getString("id");
+                if (id.matches("w_[0-9]+\\.jpg")) {
+                    new java.io.File(wallDir(), id).delete();
+                    if (id.equals(prefs.getString(K_WALLSEL, "builtin"))) {
+                        prefs.edit().putString(K_WALLSEL, "builtin").apply();
+                        showWallpaper();
+                    }
+                }
                 return;
             }
             Intent i = new Intent();

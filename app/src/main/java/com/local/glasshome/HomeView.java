@@ -43,7 +43,6 @@ import java.util.Set;
  */
 final class HomeView extends View {
     private static final int ZT = 0, ZD = 1, ZG = 2;   // zones: top bar, dock, grid
-    private static final int DOCK_MAX = 4;
     private int cols = 4;                 // grid columns: 4 / 5 / 6 for large / medium / small icons
     private float popTarget = 1.07f;      // scale of the selected tile
     private float heldScale() { return Math.max(1.14f, popTarget + 0.07f); }
@@ -83,7 +82,7 @@ final class HomeView extends View {
     // user options (options panel on the TV, or the phone page)
     private boolean uiGlass = false, uiColor = true, colorFollow = true, optOpen = false;
     private int uiSize = 0, uiLabel = 2, uiPop = 1, optIdx = 0, topRow = 0;
-    private float labelSp = 22f;
+    private float labelSp = 22f, nameSp = 52f;
     private final RectF ramRect = new RectF();
     private static final String[] OPT_TITLE = { "Khay kính ở dock", "Cỡ icon ứng dụng", "Tên ứng dụng",
             "Viền đổi màu theo app", "Phóng to khi chọn", "Tuỳ chỉnh từ điện thoại" };
@@ -193,11 +192,11 @@ final class HomeView extends View {
             for (String s : dockCsv.split(",")) {
                 s = s.trim();
                 AppEntry e = by.get(s);
-                if (e != null && used.add(s) && dock.size() < DOCK_MAX) dock.add(e);
+                if (e != null && used.add(s) && dock.size() < cols) dock.add(e);
             }
         }
         for (AppEntry e : all) {
-            if (dock.size() >= DOCK_MAX) break;
+            if (dock.size() >= cols) break;
             if (used.add(e.cn.getPackageName())) dock.add(e);
         }
         for (AppEntry e : all) if (!used.contains(e.cn.getPackageName())) grid.add(e);
@@ -735,7 +734,7 @@ final class HomeView extends View {
                     grid.remove(i); grid.add(i - cols, held); gridIdx = i - cols; changed = true;
                 } else {
                     int slotI = Math.min(i % cols, dock.size());
-                    if (dock.size() < DOCK_MAX) {
+                    if (dock.size() < cols) {
                         grid.remove(i);
                         dock.add(slotI, held);
                         zone = ZD; dockIdx = slotI; changed = true;
@@ -1093,7 +1092,7 @@ final class HomeView extends View {
         float dx = mx + cw + gap;                      // thin divider between the clock and the info block
         p.setStyle(Paint.Style.FILL);
         p.setColor(0x55FFFFFF);
-        c.drawRect(dx, base - 41 * dp, dx + bar, base + 1 * dp, p);   // as tall as the two-line block, centred on the clock
+        c.drawRect(dx, base - 40 * dp, dx + bar, base + 1 * dp, p);   // as tall as the clock digits
         drawInfo(c, dx + bar + gap, base);
 
         text.setTypeface(regular);
@@ -1109,9 +1108,9 @@ final class HomeView extends View {
 
     /** Two compact lines: date and lunar date (the weather now lives on the app-name row). */
     private void drawInfo(Canvas c, float bx, float base) {
-        float y2 = base - 28 * dp, y3 = base - 4 * dp;   // 24 dp line spacing, centred on the clock
+        float y2 = base - 27 * dp, y3 = base;   // spans the height of the clock digits
         text.setTypeface(regular);
-        text.setTextSize(14.5f * dp);
+        text.setTextSize(17 * dp);
         text.setLetterSpacing(0.14f);
         text.setColor(0xCCFFFFFF);
         c.drawText(dateStr, bx, y2, text);
@@ -1452,10 +1451,29 @@ final class HomeView extends View {
         return true;
     }
 
+    int dockMax() { return cols; }
+
+    /** The dock holds one app per column: pull apps in from the grid when it grows, push the last ones back when it shrinks. */
+    private void rebalanceDock(boolean save) {
+        String key = focusKey();
+        while (dock.size() > cols) grid.add(0, dock.remove(dock.size() - 1));
+        while (dock.size() < cols && !grid.isEmpty()) dock.add(grid.remove(0));
+        if (key != null && key.length() > 2) {
+            String pkg = key.substring(2);
+            for (int i = 0; i < dock.size(); i++) if (dock.get(i).cn.getPackageName().equals(pkg)) { zone = ZD; dockIdx = i; }
+            for (int i = 0; i < grid.size(); i++) if (grid.get(i).cn.getPackageName().equals(pkg)) { zone = ZG; gridIdx = i; }
+        }
+        fixZone();
+        if (save) saveLayoutNow();
+    }
+
     /** Recomputes everything derived from the options; persist = also save them. */
     private void applyUi(boolean persist) {
+        int oldCols = cols;
         cols = uiSize == 1 ? 5 : uiSize == 2 ? 6 : 4;
+        if (cols != oldCols) rebalanceDock(persist);
         labelSp = uiLabel == 1 ? 16f : uiLabel == 3 ? 28f : 22f;
+        nameSp = uiLabel == 1 ? 34f : uiLabel == 3 ? 68f : 52f;
         popTarget = uiPop == 0 ? 1f : uiPop == 2 ? 1.15f : 1.07f;
         colorFollow = uiColor;
         pop.t = popTarget;
@@ -1741,12 +1759,14 @@ final class HomeView extends View {
     }
 
     private void drawName(Canvas c) {
-        if (dock.isEmpty()) return;
+        if (dock.isEmpty() || uiLabel == 0) return;
+        float maxW = W - 2 * mx - weatherWidth() - 30 * dp;   // measured first: it changes the paint
         text.setTextAlign(Paint.Align.LEFT);
+        text.setLetterSpacing(0f);
         text.setTypeface(light);
-        text.setTextSize(52 * dp);
+        text.setTextSize(nameSp * dp);
         text.setColor(Color.WHITE);
-        CharSequence s = TextUtils.ellipsize(dock.get(dockIdx).label, text, W - 2 * mx - weatherWidth() - 30 * dp, TextUtils.TruncateAt.END);
+        CharSequence s = TextUtils.ellipsize(dock.get(dockIdx).label, text, maxW, TextUtils.TruncateAt.END);
         c.drawText(s, 0, s.length(), mx, dockTop - 36 * dp, text);
     }
 

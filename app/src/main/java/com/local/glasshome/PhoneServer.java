@@ -22,6 +22,7 @@ final class PhoneServer {
     interface Bridge {
         String stateJson();                       // current settings as JSON (called on a worker thread)
         void apply(String kind, String json);     // change a setting (the bridge hops to the UI thread)
+        String upload(byte[] image);              // a photo sent from the phone; returns JSON
         String page();                            // the HTML page
     }
 
@@ -107,18 +108,6 @@ final class PhoneServer {
                     hdrPin = v;
                 }
             }
-            String body = "";
-            if (len > 65536) { send(out, 413, "text/plain; charset=utf-8", "too large"); return; }
-            if (len > 0) {
-                byte[] b = new byte[len];
-                int off = 0;
-                while (off < len) {
-                    int r = in.read(b, off, len - off);
-                    if (r < 0) break;
-                    off += r;
-                }
-                body = new String(b, 0, off, "UTF-8");
-            }
 
             if (path.equals("/") || path.equals("/index.html")) {
                 send(out, 200, "text/html; charset=utf-8", bridge.page());
@@ -126,7 +115,7 @@ final class PhoneServer {
             }
             if (!path.startsWith("/api/")) { send(out, 404, "text/plain; charset=utf-8", "not found"); return; }
 
-            synchronized (this) {
+            synchronized (this) {   // the PIN is checked before any body is read
                 if (fails >= 5) { send(out, 429, "application/json; charset=utf-8", "{\"error\":\"locked\"}"); return; }
                 if (!MessageDigest.isEqual(hdrPin.getBytes("UTF-8"), pin.getBytes("UTF-8"))) {
                     fails++;
@@ -134,10 +123,25 @@ final class PhoneServer {
                     return;
                 }
             }
+
+            boolean upload = method.equals("POST") && path.equals("/api/upload");
+            int limit = upload ? 4 * 1024 * 1024 : 65536;
+            if (len > limit) { send(out, 413, "application/json; charset=utf-8", "{\"error\":\"too large\"}"); return; }
+            byte[] raw = new byte[Math.max(len, 0)];
+            int off = 0;
+            while (off < len) {
+                int r = in.read(raw, off, len - off);
+                if (r < 0) break;
+                off += r;
+            }
+
             if (path.equals("/api/state")) {
                 send(out, 200, "application/json; charset=utf-8", bridge.stateJson());
+            } else if (upload) {
+                byte[] img = off == raw.length ? raw : java.util.Arrays.copyOf(raw, off);
+                send(out, 200, "application/json; charset=utf-8", bridge.upload(img));
             } else if (method.equals("POST")) {
-                bridge.apply(path.substring(5), body);
+                bridge.apply(path.substring(5), new String(raw, 0, off, "UTF-8"));
                 send(out, 200, "application/json; charset=utf-8", "{\"ok\":true}");
             } else {
                 send(out, 404, "text/plain; charset=utf-8", "not found");
