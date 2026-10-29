@@ -18,6 +18,7 @@
   label.row:last-child { border-bottom: 0; }
   input[type=checkbox] { width: 22px; height: 22px; }
   input[type=range] { width: 100%; }
+  .lab { display: block; margin-top: 10px; color: #b9c0ff; font-size: 14px; }
   .note { color: #8c93bd; font-size: 13px; margin-top: 8px; }
   .scroll { max-height: 320px; overflow: auto; }
   #toast { position: fixed; left: 50%; bottom: 24px; transform: translateX(-50%); padding: 12px 18px; border-radius: 14px; background: #2d8f5b; color: #fff; opacity: 0; transition: opacity .25s; pointer-events: none; max-width: 90%; text-align: center; }
@@ -50,6 +51,21 @@
     <div id="hidden" class="scroll"></div>
     <button onclick="saveHidden()">Lưu danh sách ẩn</button>
     <div class="note">App bị ẩn vẫn được cài và vẫn chạy bình thường, chỉ không hiện trên màn hình chính.</div>
+  </section>
+
+  <section>
+    <h2>Giao diện</h2>
+    <label class="lab">Khay kính ở dock</label>
+    <select id="ui_glass"><option value="0">Tắt</option><option value="1">Bật</option></select>
+    <label class="lab">Cỡ icon ứng dụng</label>
+    <select id="ui_size"><option value="0">Lớn</option><option value="1">Vừa</option><option value="2">Nhỏ</option></select>
+    <label class="lab">Tên ứng dụng</label>
+    <select id="ui_label"><option value="0">Ẩn</option><option value="1">Nhỏ</option><option value="2">Vừa</option><option value="3">Lớn</option></select>
+    <label class="lab">Viền đổi màu theo app</label>
+    <select id="ui_color"><option value="0">Tắt</option><option value="1">Bật</option></select>
+    <label class="lab">Phóng to ô khi chọn</label>
+    <select id="ui_pop"><option value="0">Tắt</option><option value="1">Vừa</option><option value="2">Lớn</option></select>
+    <button onclick="saveUi()">Lưu giao diện</button>
   </section>
 
   <section>
@@ -132,6 +148,9 @@ function render() {
   $('hidden').innerHTML = hs;
 
   $('place').textContent = 'Đang dùng: ' + (S.place || '');
+  var u = S.ui || {};
+  $('ui_glass').value = u.glass || 0; $('ui_size').value = u.size || 0; $('ui_label').value = (u.label === undefined ? 2 : u.label);
+  $('ui_color').value = (u.color === undefined ? 1 : u.color); $('ui_pop').value = (u.pop === undefined ? 1 : u.pop);
   $('sound').checked = !!S.sound;
   $('vol').value = Math.round((S.vol || 0) * 100);
   $('wall').checked = !!S.wallpaper;
@@ -147,6 +166,10 @@ function saveHidden() {
   var boxes = document.querySelectorAll('#hidden input[type=checkbox]');
   for (var i = 0; i < boxes.length; i++) { if (boxes[i].checked) h.push(boxes[i].getAttribute('data-p')); }
   api('/api/hidden', { hidden: h }).then(function () { toast('Đã lưu danh sách ẩn'); }).catch(fail);
+}
+function saveUi() {
+  api('/api/ui', { glass: +$('ui_glass').value, size: +$('ui_size').value, label: +$('ui_label').value, color: +$('ui_color').value, pop: +$('ui_pop').value })
+    .then(function () { toast('Đã lưu giao diện'); }).catch(fail);
 }
 function saveCity() {
   var c = $('city').value.trim();
