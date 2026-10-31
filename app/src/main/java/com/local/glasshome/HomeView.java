@@ -42,7 +42,7 @@ import java.util.Set;
  * No blur, no video, no polling: it only redraws while a spring is moving or the minute changes.
  */
 final class HomeView extends View {
-    private static final int ZT = 0, ZD = 1, ZG = 2;   // zones: top bar, dock, grid
+    private static final int ZT = 0, ZD = 1, ZG = 2, ZW = 3;   // zones: top bar, dock, grid, widgets
     private int cols = 4;                 // grid columns: 4 / 5 / 6 for large / medium / small icons
     private float popTarget = 1.07f;      // scale of the selected tile
     private float heldScale() { return Math.max(1.14f, popTarget + 0.07f); }
@@ -78,6 +78,15 @@ final class HomeView extends View {
     private boolean menuOpen = false;
     private boolean castOpen = false, castOff = false;
     private boolean phoneOpen = false;
+
+    // widgets (calendar + weather) and their full screens
+    private boolean widgetsOn = false, calOpen = false, weaOpen = false;
+    private int wIdx = 0;
+    private final RectF[] widgetRect = { new RectF(), new RectF() };
+    private final RectF cardA = new RectF(), cardB = new RectF(), cardC = new RectF();
+    private Lunar.Info todayInfo = new Lunar.Info();
+    private int calY, calM, calD, calTY, calTM, calTD, calMonthKey = -1;
+    private final Lunar.Info[] calInfo = new Lunar.Info[32];
 
     // user options (options panel on the TV, or the phone page)
     private boolean uiGlass = false, uiColor = true, colorFollow = true, optOpen = false;
@@ -250,6 +259,8 @@ final class HomeView extends View {
     void goHome() {
         ddOpen = false;
         optOpen = false;
+        calOpen = false;
+        weaOpen = false;
         menuOpen = false;
         castOpen = false;
         closePhone();
@@ -344,6 +355,15 @@ final class HomeView extends View {
         text.setLetterSpacing(0f);
         float rw = 16 * dp + 22 * dp + 8 * dp + text.measureText("Dọn RAM") + 18 * dp, rh = 40 * dp;
         ramRect.set(rg.right - rw, rg.bottom + 12 * dp, rg.right, rg.bottom + 12 * dp + rh);
+        // the two widgets sit between the header and the big app name, side by side
+        float nameCap = uiLabel == 0 ? 0f : 0.72f * nameSp * dp + 8 * dp;
+        float wBottom = dockTop - (uiLabel == 0 ? 22 * dp : 36 * dp + nameCap);
+        float headerBottom = 106 * dp + 50 * dp + 14 * dp;
+        float wTop = Math.max(headerBottom, wBottom - 92 * dp);
+        widgetsOn = wBottom - wTop >= 56 * dp;
+        float cardW = (W - 2 * mx - 16 * dp) / 2f;
+        widgetRect[0].set(mx, wTop, mx + cardW, wBottom);
+        widgetRect[1].set(mx + cardW + 16 * dp, wTop, W - mx, wBottom);
         scrimM.setScale(1f, H);
         scrimShader.setLocalMatrix(scrimM);
         scrimPaint.setShader(scrimShader);
@@ -373,6 +393,8 @@ final class HomeView extends View {
         if (zone == ZT) {
             if (topRow == 1) { tmp.set(ramRect); infl = 4 * dp; rad = ramRect.height() / 2 + infl; }
             else { tmp.set(pill[topIdx]); infl = 4 * dp; rad = pillH / 2 + infl; }
+        } else if (zone == ZW) {
+            tmp.set(widgetRect[wIdx]); infl = 4 * dp; rad = 20 * dp + infl;
         } else if (zone == ZD && !dock.isEmpty()) {
             slot(dockIdx, tmp); infl = 0; rad = 18 * dp;
         } else if (zone == ZG && !grid.isEmpty()) {
@@ -409,6 +431,8 @@ final class HomeView extends View {
     // ------------------------------------------------------------------ keys
 
     boolean onNavDown(int k, KeyEvent e) {
+        if (calOpen) return calDown(k, e);
+        if (weaOpen) return weaDown(k, e);
         if (optOpen) return optDown(k, e);
         if (phoneOpen) {   // only Back or a fresh OK press closes it (OK repeats from the long press are ignored)
             boolean ok = (k == KeyEvent.KEYCODE_DPAD_CENTER || k == KeyEvent.KEYCODE_ENTER) && e.getRepeatCount() == 0;
@@ -476,7 +500,7 @@ final class HomeView extends View {
 
     private void move(int dx, int dy) {
         if (held != null) { moveHeld(dx, dy); return; }
-        int oz = zone, ot = topIdx, od = dockIdx, og = gridIdx, orow = topRow;
+        int oz = zone, ot = topIdx, od = dockIdx, og = gridIdx, orow = topRow, ow = wIdx;
         if (zone == ZT) {
             if (topRow == 0) {
                 if (dx != 0) topIdx = Math.max(0, Math.min(NP - 1, topIdx + dx));   // ends do not fall through
@@ -484,12 +508,23 @@ final class HomeView extends View {
             } else if (dy < 0) {
                 topRow = 0;
             } else if (dy > 0) {
-                if (!dock.isEmpty()) zone = ZD;
+                if (widgetsOn) { zone = ZW; wIdx = 1; }
+                else if (!dock.isEmpty()) zone = ZD;
+                else if (!grid.isEmpty()) { zone = ZG; gridIdx = 0; }
+            }
+        } else if (zone == ZW) {
+            if (dx != 0) wIdx = Math.max(0, Math.min(1, wIdx + dx));
+            else if (dy < 0) { zone = ZT; topRow = 1; }
+            else if (dy > 0) {
+                if (!dock.isEmpty()) { zone = ZD; dockIdx = wIdx == 0 ? 0 : dock.size() - 1; }
                 else if (!grid.isEmpty()) { zone = ZG; gridIdx = 0; }
             }
         } else if (zone == ZD) {
             if (dx != 0) dockIdx = Math.max(0, Math.min(dock.size() - 1, dockIdx + dx));
-            else if (dy < 0) { zone = ZT; topRow = 1; }
+            else if (dy < 0) {
+                if (widgetsOn) { zone = ZW; wIdx = dockIdx < (dock.size() + 1) / 2 ? 0 : 1; }
+                else { zone = ZT; topRow = 1; }
+            }
             else if (dy > 0 && !grid.isEmpty()) { zone = ZG; gridIdx = Math.min(dockIdx, grid.size() - 1); }
         } else {
             int row = gridIdx / cols;
@@ -506,7 +541,7 @@ final class HomeView extends View {
                 else zone = ZT;
             }
         }
-        if (oz != zone || ot != topIdx || od != dockIdx || og != gridIdx || orow != topRow) { act.sfx.move(); focusMoved(); }
+        if (oz != zone || ot != topIdx || od != dockIdx || og != gridIdx || orow != topRow || ow != wIdx) { act.sfx.move(); focusMoved(); }
     }
 
     private void activate() {
@@ -520,7 +555,9 @@ final class HomeView extends View {
         }
         if (held != null) { drop(); return; }
         if (!(arrange && (zone == ZD || zone == ZG))) act.sfx.open();
-        if (zone == ZT) {
+        if (zone == ZW) {
+            if (wIdx == 0) openCalendar(); else openWeatherDetail();
+        } else if (zone == ZT) {
             if (topRow == 1) act.cleanRam();
             else if (topIdx == P_CAST) openCast();
             else if (topIdx == P_ARR) toggleArrange();
@@ -842,7 +879,7 @@ final class HomeView extends View {
         // liquid stretch: the highlight elongates a little along its direction of travel
         float ex = Math.min(0.14f, Math.abs(hx.vel) / 14000f) * hw.v;
         float ey = Math.min(0.14f, Math.abs(hy.vel) / 14000f) * hh.v;
-        if (zone == ZT) {
+        if (zone == ZT || zone == ZW) {
             rf.set(hx.v - ex / 2f, hy.v - ey / 2f, hx.v + hw.v + ex / 2f, hy.v + hh.v + ey / 2f);
             glass(c, rf, hr.v, 0x34, false);  // the top icons keep a plain glass circle (no glint)
         } else {
@@ -871,7 +908,7 @@ final class HomeView extends View {
         drawDock(c);
         drawGrid(c);
         drawName(c);
-        drawWeatherRow(c);
+        drawWidgets(c);
         if (ddOpen) drawDropdown(c);
 
         c.restore();
@@ -880,6 +917,8 @@ final class HomeView extends View {
         drawCast(c);
         drawPhone(c);
         drawOptions(c);
+        drawCalendarDetail(c);
+        drawWeatherDetail(c);
         if (anim || fading) postInvalidateOnAnimation(); else lastNs = 0;
     }
 
@@ -1058,6 +1097,7 @@ final class HomeView extends View {
         dateStr = ds.toUpperCase(Locale.getDefault());
         Calendar cal = Calendar.getInstance();
         int h = cal.get(Calendar.HOUR_OF_DAY);
+        todayInfo = Lunar.info(cal.get(Calendar.YEAR), cal.get(Calendar.MONTH) + 1, cal.get(Calendar.DAY_OF_MONTH));
         lunarStr = Lunar.describe(cal.get(Calendar.YEAR), cal.get(Calendar.MONTH) + 1, cal.get(Calendar.DAY_OF_MONTH))
                 .toUpperCase(Locale.getDefault());
         greetStr = h < 5 ? "CHÀO BUỔI TỐI" : h < 11 ? "CHÀO BUỔI SÁNG" : h < 13 ? "CHÀO BUỔI TRƯA"
@@ -1096,11 +1136,11 @@ final class HomeView extends View {
         drawInfo(c, dx + bar + gap, base);
 
         text.setTypeface(regular);
-        text.setTextSize(14 * dp);
+        text.setTextSize(12.5f * dp);
         text.setLetterSpacing(0.03f);
         text.setColor(0xCCFFFFFF);
-        drawFlush(c, memStr, mx, base + 38 * dp);
-        drawFlush(c, storStr, mx, base + 58 * dp);
+        drawFlush(c, memStr, mx, base + 34 * dp);
+        drawFlush(c, storStr, mx, base + 50 * dp);
         text.setLetterSpacing(0f);
     }
 
@@ -1118,47 +1158,6 @@ final class HomeView extends View {
         text.setLetterSpacing(0f);
     }
 
-    private String weatherSub(Weather w) {
-        return w.text() + (place.length() > 0 ? " · " + place : "");
-    }
-
-    /** Width of the weather block (icon + text), 0 when there is no weather yet. */
-    private float weatherWidth() {
-        Weather w = weather;
-        if (w == null) return 0f;
-        text.setLetterSpacing(0f);
-        text.setTypeface(light);
-        text.setTextSize(34 * dp);
-        float a = text.measureText(Math.round(w.temp) + "°C");
-        text.setTypeface(regular);
-        text.setTextSize(15 * dp);
-        float b = text.measureText(weatherSub(w));
-        return 36 * dp + 14 * dp + Math.max(a, b);
-    }
-
-    /** Weather at the right edge, vertically level with the big app name. */
-    private void drawWeatherRow(Canvas c) {
-        Weather w = weather;
-        if (w == null) return;
-        float y0 = dockTop - 36 * dp;   // baseline of the big app name
-        float rx = W - mx;
-        text.setLetterSpacing(0f);
-        text.setTextAlign(Paint.Align.RIGHT);
-        text.setTypeface(light);
-        text.setTextSize(34 * dp);
-        text.setColor(Color.WHITE);
-        String t = Math.round(w.temp) + "°C";
-        float aw = text.measureText(t);
-        c.drawText(t, rx, y0 - 12 * dp, text);
-        text.setTypeface(regular);
-        text.setTextSize(15 * dp);
-        text.setColor(0xCCFFFFFF);
-        String sub = weatherSub(w);
-        float bw = text.measureText(sub);
-        c.drawText(sub, rx, y0 + 8 * dp, text);
-        text.setTextAlign(Paint.Align.LEFT);
-        drawIcon(c, w, rx - Math.max(aw, bw) - 14 * dp - 18 * dp, y0 - 14 * dp, 36 * dp);
-    }
 
     private void stroke(float width, int color) {
         p.setStyle(Paint.Style.STROKE);
@@ -1168,8 +1167,12 @@ final class HomeView extends View {
     }
 
     private void drawIcon(Canvas c, Weather w, float cx, float cy, float s) {
+        drawIconK(c, w.kind(), w.day, cx, cy, s);
+    }
+
+    private void drawIconK(Canvas c, int kind, boolean day, float cx, float cy, float s) {
         float u = s / 2f;
-        switch (w.kind()) {
+        switch (kind) {
             case Weather.SUN:
                 sun(c, cx, cy, 0.55f * u);
                 break;
@@ -1177,7 +1180,7 @@ final class HomeView extends View {
                 moon(c, cx, cy, 0.62f * u);
                 break;
             case Weather.PARTLY:
-                if (w.day) sun(c, cx - 0.28f * u, cy - 0.28f * u, 0.38f * u);
+                if (day) sun(c, cx - 0.28f * u, cy - 0.28f * u, 0.38f * u);
                 else moon(c, cx - 0.28f * u, cy - 0.28f * u, 0.42f * u);
                 cloud(c, cx + 0.12f * u, cy + 0.2f * u, 0.8f * u);
                 break;
@@ -1546,6 +1549,480 @@ final class HomeView extends View {
         text.setTextAlign(Paint.Align.LEFT);
     }
 
+    // ================================================================ widgets and their full screens
+
+    private static final String[] WEEKDAY_LONG = { "Chủ Nhật", "Thứ Hai", "Thứ Ba", "Thứ Tư", "Thứ Năm", "Thứ Sáu", "Thứ Bảy" };
+    private static final int GREEN = 0xFF8BE28B, PINK = 0xFFF48FB1, ORANGE = 0xFFFFC266, RAINBLUE = 0xFF7FB6FF;
+
+    private String clockOf(long t) {
+        return new SimpleDateFormat("HH:mm", Locale.getDefault()).format(new Date(t));
+    }
+
+    /** Label in grey followed by a value in white. */
+    private void kv(Canvas c, String label, String value, float x, float y) {
+        text.setColor(0xB3FFFFFF);
+        c.drawText(label, x, y, text);
+        float w = text.measureText(label);
+        text.setColor(Color.WHITE);
+        c.drawText(value, x + w, y, text);
+    }
+
+    private void tri(Canvas c, float cx, float cy, float s, boolean left) {
+        path.reset();
+        if (left) { path.moveTo(cx + s, cy - s); path.lineTo(cx - s, cy); path.lineTo(cx + s, cy + s); }
+        else { path.moveTo(cx - s, cy - s); path.lineTo(cx + s, cy); path.lineTo(cx - s, cy + s); }
+        path.close();
+        p.setStyle(Paint.Style.FILL);
+        p.setColor(0xB3FFFFFF);
+        c.drawPath(path, p);
+    }
+
+    // ---- compact cards on the home screen
+
+    private void drawWidgets(Canvas c) {
+        if (!widgetsOn) return;
+        for (int i = 0; i < 2; i++) glass(c, widgetRect[i], 20 * dp, 0x26, false);
+        drawCalendarWidget(c, widgetRect[0]);
+        drawWeatherWidget(c, widgetRect[1]);
+    }
+
+    private void drawCalendarWidget(Canvas c, RectF r) {
+        Lunar.Info t = todayInfo;
+        Calendar cal = Calendar.getInstance();
+        float pad = 16 * dp, h = r.height();
+        text.setTextAlign(Paint.Align.LEFT);
+        text.setLetterSpacing(0f);
+        text.setTypeface(light);
+        text.setTextSize(Math.min(52 * dp, h * 0.62f));
+        text.setColor(Color.WHITE);
+        String day = String.valueOf(cal.get(Calendar.DAY_OF_MONTH));
+        float dw = text.measureText(day);
+        c.drawText(day, r.left + pad, r.centerY() + text.getTextSize() * 0.35f, text);
+        float x = r.left + pad + dw + 16 * dp, maxW = r.right - pad - x;
+        text.setTypeface(regular);
+        text.setTextSize(16 * dp);
+        text.setColor(Color.WHITE);
+        castLine(c, WEEKDAY_LONG[cal.get(Calendar.DAY_OF_WEEK) - 1] + " · Tháng " + (cal.get(Calendar.MONTH) + 1) + ", " + cal.get(Calendar.YEAR),
+                x, r.top + h * 0.34f, maxW);
+        text.setTextSize(14 * dp);
+        text.setColor(0xCCFFFFFF);
+        castLine(c, t.day + " tháng " + t.monthWord + " · Năm " + t.yearCanChi, x, r.top + h * 0.58f, maxW);
+        text.setTextSize(13 * dp);
+        if (t.holiday.length() > 0) {
+            text.setColor(ORANGE);
+            castLine(c, t.holiday, x, r.top + h * 0.82f, maxW);
+        } else {
+            text.setColor(0xB3FFFFFF);
+            String a = "Ngày " + t.dayCanChi + " · ";
+            c.drawText(a, x, r.top + h * 0.82f, text);
+            text.setColor(t.good ? GREEN : PINK);
+            castLine(c, t.star + (t.good ? " (hoàng đạo)" : " (hắc đạo)"), x + text.measureText(a), r.top + h * 0.82f, Math.max(10 * dp, maxW - text.measureText(a)));
+        }
+    }
+
+    private void drawWeatherWidget(Canvas c, RectF r) {
+        Weather w = weather;
+        float pad = 16 * dp, h = r.height();
+        text.setTextAlign(Paint.Align.LEFT);
+        text.setLetterSpacing(0f);
+        if (w == null) {
+            text.setTypeface(regular);
+            text.setTextSize(15 * dp);
+            text.setColor(0xCCFFFFFF);
+            c.drawText("Đang tải thời tiết...", r.left + pad, r.centerY() + 5 * dp, text);
+            return;
+        }
+        float icon = Math.min(44 * dp, h * 0.55f);
+        drawIcon(c, w, r.left + pad + icon / 2f, r.centerY(), icon);
+        text.setTypeface(light);
+        text.setTextSize(Math.min(46 * dp, h * 0.56f));
+        text.setColor(Color.WHITE);
+        String t = Math.round(w.temp) + "°";
+        float tx = r.left + pad + icon + 12 * dp;
+        c.drawText(t, tx, r.centerY() + text.getTextSize() * 0.35f, text);
+        float x = tx + text.measureText(t) + 14 * dp, maxW = r.right - pad - x;
+        text.setTypeface(regular);
+        text.setTextSize(16 * dp);
+        castLine(c, w.text() + (place.length() > 0 ? " · " + place : ""), x, r.top + h * 0.34f, maxW);
+        text.setTextSize(14 * dp);
+        text.setColor(0xCCFFFFFF);
+        castLine(c, "Cao " + Math.round(w.hi) + "° · Thấp " + Math.round(w.lo) + "°", x, r.top + h * 0.58f, maxW);
+        text.setTextSize(13 * dp);
+        text.setColor(0xB3FFFFFF);
+        castLine(c, "Mưa " + w.rainMax + "% · Độ ẩm " + w.humidity + "%", x, r.top + h * 0.82f, maxW);
+    }
+
+    private void openWeatherDetail() {
+        weaOpen = true;
+        act.refreshWeather(false);
+        invalidate();
+    }
+
+    private boolean weaDown(int k, KeyEvent e) {
+        if (k == KeyEvent.KEYCODE_BACK) {
+            weaOpen = false;
+        } else if ((k == KeyEvent.KEYCODE_DPAD_CENTER || k == KeyEvent.KEYCODE_ENTER || k == KeyEvent.KEYCODE_NUMPAD_ENTER)
+                && e.getRepeatCount() == 0) {
+            act.sfx.open();
+            act.refreshWeather(true);
+        }
+        invalidate();
+        return true;
+    }
+
+    // ---- full weather screen
+
+    private void drawWeatherDetail(Canvas c) {
+        if (!weaOpen) return;
+        p.setStyle(Paint.Style.FILL);
+        p.setColor(0xD6101018);
+        c.drawRect(0, 0, W, H, p);
+        Weather w = weather;
+        text.setLetterSpacing(0f);
+        text.setTextAlign(Paint.Align.LEFT);
+        text.setTypeface(regular);
+        text.setFakeBoldText(true);
+        text.setTextSize(30 * dp);
+        text.setColor(Color.WHITE);
+        c.drawText("Thời tiết", mx, 56 * dp, text);
+        text.setFakeBoldText(false);
+        text.setTextSize(13 * dp);
+        text.setColor(0xB3FFFFFF);
+        c.drawText(place + (w != null ? "  ·  cập nhật " + clockOf(w.time) : ""), mx, 78 * dp, text);
+        text.setTextAlign(Paint.Align.RIGHT);
+        c.drawText("OK để làm mới  ·  BACK để thoát", W - mx, 78 * dp, text);
+        text.setTextAlign(Paint.Align.LEFT);
+        if (w == null) {
+            text.setTextSize(20 * dp);
+            text.setColor(Color.WHITE);
+            c.drawText("Đang tải thời tiết...", mx, H / 2f, text);
+            return;
+        }
+        float tm = 96 * dp, bm = 26 * dp, g = 16 * dp, ch = H - tm - bm;
+        float leftW = (W - 2 * mx - g) * 0.37f, rx = mx + leftW + g, rw = W - mx - rx;
+
+        // left card: now
+        cardA.set(mx, tm, mx + leftW, tm + ch);
+        glass(c, cardA, 24 * dp, 0x28, false);
+        float x = mx + 24 * dp, xr = mx + leftW - 24 * dp;
+        drawIcon(c, w, x + 38 * dp, tm + 62 * dp, 76 * dp);
+        text.setTypeface(light);
+        text.setTextSize(86 * dp);
+        text.setColor(Color.WHITE);
+        c.drawText(Math.round(w.temp) + "°", x + 92 * dp, tm + 92 * dp, text);
+        text.setTypeface(regular);
+        text.setTextSize(24 * dp);
+        c.drawText(w.text(), x, tm + 150 * dp, text);
+        text.setTextSize(15 * dp);
+        text.setColor(0xB3FFFFFF);
+        c.drawText("Cao " + Math.round(w.hi) + "°  ·  Thấp " + Math.round(w.lo) + "°", x, tm + 174 * dp, text);
+        p.setStyle(Paint.Style.FILL);
+        p.setColor(0x33FFFFFF);
+        c.drawRect(x, tm + 190 * dp, xr, tm + 191 * dp, p);
+        String[] lab = { "Cảm giác như", "Độ ẩm", "Gió", "Khả năng mưa", "Chỉ số UV", "Mặt trời mọc / lặn" };
+        String[] val = { Math.round(w.feels) + "°", w.humidity + "%", Math.round(w.wind) + " km/h", w.rainMax + "%", w.uvText(), w.sunrise + " / " + w.sunset };
+        float ry = tm + 222 * dp, step = Math.min(30 * dp, (ch - 222 * dp - 14 * dp) / 5.2f);
+        for (int i = 0; i < lab.length; i++) {
+            text.setTextAlign(Paint.Align.LEFT);
+            text.setTextSize(15 * dp);
+            text.setColor(0xB3FFFFFF);
+            c.drawText(lab[i], x, ry + i * step, text);
+            text.setTextAlign(Paint.Align.RIGHT);
+            text.setColor(Color.WHITE);
+            c.drawText(val[i], xr, ry + i * step, text);
+        }
+        text.setTextAlign(Paint.Align.LEFT);
+
+        // right top: hourly
+        float h1 = ch * 0.36f;
+        cardB.set(rx, tm, rx + rw, tm + h1);
+        glass(c, cardB, 24 * dp, 0x28, false);
+        text.setTextSize(16 * dp);
+        text.setColor(Color.WHITE);
+        c.drawText("Theo giờ", rx + 24 * dp, tm + 30 * dp, text);
+        float colW = (rw - 48 * dp) / 8f;
+        text.setTextAlign(Paint.Align.CENTER);
+        for (int k = 0; k < w.nHours; k++) {
+            float cx = rx + 24 * dp + colW * (k + 0.5f);
+            text.setTextSize(13 * dp);
+            text.setColor(k == 0 ? Color.WHITE : 0xB3FFFFFF);
+            c.drawText(w.hLabel[k], cx, tm + h1 * 0.40f, text);
+            drawIconK(c, Weather.kindFor(w.hCode[k], w.hDay[k]), w.hDay[k], cx, tm + h1 * 0.57f, 28 * dp);
+            text.setTextSize(17 * dp);
+            text.setColor(Color.WHITE);
+            c.drawText(w.hTemp[k] + "°", cx, tm + h1 * 0.80f, text);
+            text.setTextSize(12 * dp);
+            text.setColor(RAINBLUE);
+            c.drawText(w.hRain[k] + "%", cx, tm + h1 * 0.93f, text);
+        }
+        text.setTextAlign(Paint.Align.LEFT);
+
+        // right bottom: 7 days
+        float y2 = tm + h1 + g, h2 = ch - h1 - g;
+        cardC.set(rx, y2, rx + rw, y2 + h2);
+        glass(c, cardC, 24 * dp, 0x28, false);
+        text.setTextSize(16 * dp);
+        text.setColor(Color.WHITE);
+        c.drawText("7 ngày tới", rx + 24 * dp, y2 + 30 * dp, text);
+        int gMin = 99, gMax = -99;
+        for (int i = 0; i < w.nDays; i++) { gMin = Math.min(gMin, w.dMin[i]); gMax = Math.max(gMax, w.dMax[i]); }
+        if (gMax <= gMin) gMax = gMin + 1;
+        float rowTop = y2 + 48 * dp, rowH = (h2 - 48 * dp - 12 * dp) / 7f;
+        float barL = rx + 24 * dp + 250 * dp, barR = rx + rw - 24 * dp - 44 * dp;
+        for (int i = 0; i < w.nDays; i++) {
+            float cy = rowTop + rowH * (i + 0.5f), by = cy + 5 * dp;
+            text.setTextAlign(Paint.Align.LEFT);
+            text.setTextSize(14 * dp);
+            text.setFakeBoldText(i == 0);
+            text.setColor(i == 0 ? Color.WHITE : 0xE6FFFFFF);
+            c.drawText(w.dLabel[i], rx + 24 * dp, by, text);
+            text.setFakeBoldText(false);
+            drawIconK(c, Weather.kindFor(w.dCode[i], true), true, rx + 24 * dp + 112 * dp, cy, 22 * dp);
+            text.setTextSize(12 * dp);
+            text.setColor(RAINBLUE);
+            c.drawText(w.dRain[i] + "%", rx + 24 * dp + 136 * dp, by, text);
+            text.setTextSize(14 * dp);
+            text.setColor(0xB3FFFFFF);
+            text.setTextAlign(Paint.Align.RIGHT);
+            c.drawText(w.dMin[i] + "°", barL - 10 * dp, by, text);
+            text.setTextAlign(Paint.Align.LEFT);
+            text.setColor(Color.WHITE);
+            c.drawText(w.dMax[i] + "°", barR + 10 * dp, by, text);
+            tmp.set(barL, cy - 3 * dp, barR, cy + 3 * dp);
+            p.setStyle(Paint.Style.FILL);
+            p.setColor(0x33FFFFFF);
+            c.drawRoundRect(tmp, 3 * dp, 3 * dp, p);
+            float x0 = barL + (w.dMin[i] - gMin) / (float) (gMax - gMin) * (barR - barL);
+            float x1 = barL + (w.dMax[i] - gMin) / (float) (gMax - gMin) * (barR - barL);
+            if (x1 - x0 < 6 * dp) x1 = x0 + 6 * dp;
+            tmp.set(x0, cy - 3 * dp, x1, cy + 3 * dp);
+            p.setShader(new LinearGradient(x0, 0, x1, 0, 0xFF6EB6FF, 0xFFFFC266, Shader.TileMode.CLAMP));
+            c.drawRoundRect(tmp, 3 * dp, 3 * dp, p);
+            p.setShader(null);
+        }
+        text.setTextAlign(Paint.Align.LEFT);
+    }
+
+    // ---- full calendar screen
+
+    private void openCalendar() {
+        Calendar t = Calendar.getInstance();
+        calTY = t.get(Calendar.YEAR);
+        calTM = t.get(Calendar.MONTH) + 1;
+        calTD = t.get(Calendar.DAY_OF_MONTH);
+        calY = calTY; calM = calTM; calD = calTD;
+        calMonthKey = -1;
+        calEnsure();
+        calOpen = true;
+        invalidate();
+    }
+
+    private void calEnsure() {
+        int key = calY * 12 + calM;
+        if (key == calMonthKey) return;
+        calMonthKey = key;
+        Calendar c = Calendar.getInstance();
+        c.clear();
+        c.set(calY, calM - 1, 1);
+        int days = c.getActualMaximum(Calendar.DAY_OF_MONTH);
+        for (int d = 1; d < 32; d++) calInfo[d] = d <= days ? Lunar.info(calY, calM, d) : null;
+    }
+
+    private void calAdd(int n, int field) {
+        Calendar c = Calendar.getInstance();
+        c.clear();
+        c.set(calY, calM - 1, calD);
+        c.add(field, n);
+        calY = c.get(Calendar.YEAR);
+        calM = c.get(Calendar.MONTH) + 1;
+        calD = c.get(Calendar.DAY_OF_MONTH);
+        calEnsure();
+        act.sfx.move();
+        invalidate();
+    }
+
+    private boolean calDown(int k, KeyEvent e) {
+        switch (k) {
+            case KeyEvent.KEYCODE_DPAD_LEFT: calAdd(-1, Calendar.DAY_OF_MONTH); break;
+            case KeyEvent.KEYCODE_DPAD_RIGHT: calAdd(1, Calendar.DAY_OF_MONTH); break;
+            case KeyEvent.KEYCODE_DPAD_UP: calAdd(-7, Calendar.DAY_OF_MONTH); break;
+            case KeyEvent.KEYCODE_DPAD_DOWN: calAdd(7, Calendar.DAY_OF_MONTH); break;
+            case KeyEvent.KEYCODE_CHANNEL_UP:
+            case KeyEvent.KEYCODE_PAGE_DOWN:
+            case KeyEvent.KEYCODE_MEDIA_FAST_FORWARD:
+            case KeyEvent.KEYCODE_MEDIA_NEXT: calAdd(1, Calendar.MONTH); break;
+            case KeyEvent.KEYCODE_CHANNEL_DOWN:
+            case KeyEvent.KEYCODE_PAGE_UP:
+            case KeyEvent.KEYCODE_MEDIA_REWIND:
+            case KeyEvent.KEYCODE_MEDIA_PREVIOUS: calAdd(-1, Calendar.MONTH); break;
+            case KeyEvent.KEYCODE_DPAD_CENTER:
+            case KeyEvent.KEYCODE_ENTER:
+            case KeyEvent.KEYCODE_NUMPAD_ENTER:
+                if (e.getRepeatCount() == 0) { calY = calTY; calM = calTM; calD = calTD; calEnsure(); act.sfx.open(); }
+                break;
+            case KeyEvent.KEYCODE_BACK: calOpen = false; break;
+        }
+        invalidate();
+        return true;
+    }
+
+    private void drawCalendarDetail(Canvas c) {
+        if (!calOpen) return;
+        p.setStyle(Paint.Style.FILL);
+        p.setColor(0xD6101018);
+        c.drawRect(0, 0, W, H, p);
+        text.setLetterSpacing(0f);
+        text.setTextAlign(Paint.Align.LEFT);
+        text.setTypeface(regular);
+        text.setFakeBoldText(true);
+        text.setTextSize(30 * dp);
+        text.setColor(Color.WHITE);
+        c.drawText("Lịch âm dương", mx, 56 * dp, text);
+        text.setFakeBoldText(false);
+        text.setTextSize(13 * dp);
+        text.setColor(0xB3FFFFFF);
+        c.drawText("◄ ► ▲ ▼ chọn ngày  ·  CH+ / CH− đổi tháng  ·  OK về hôm nay  ·  BACK để thoát", mx, 78 * dp, text);
+
+        Lunar.Info info = calInfo[calD];
+        if (info == null) return;
+        Calendar sel = Calendar.getInstance();
+        sel.clear();
+        sel.set(calY, calM - 1, calD);
+        float tm = 96 * dp, bm = 26 * dp, g = 16 * dp, ch = H - tm - bm;
+        float leftW = (W - 2 * mx - g) * 0.37f, rx = mx + leftW + g, rw = W - mx - rx;
+
+        // left card: the selected day
+        cardA.set(mx, tm, mx + leftW, tm + ch);
+        glass(c, cardA, 24 * dp, 0x28, false);
+        float x = mx + 24 * dp, xr = mx + leftW - 24 * dp;
+        text.setTypeface(light);
+        text.setTextSize(70 * dp);
+        text.setColor(Color.WHITE);
+        String bigDay = String.valueOf(calD);
+        c.drawText(bigDay, x, tm + 84 * dp, text);
+        float dw = text.measureText(bigDay);
+        text.setTypeface(regular);
+        text.setFakeBoldText(true);
+        text.setTextSize(24 * dp);
+        c.drawText(WEEKDAY_LONG[sel.get(Calendar.DAY_OF_WEEK) - 1], x + dw + 16 * dp, tm + 52 * dp, text);
+        text.setFakeBoldText(false);
+        text.setTextSize(16 * dp);
+        text.setColor(0xB3FFFFFF);
+        c.drawText("Tháng " + calM + ", " + calY, x + dw + 16 * dp, tm + 76 * dp, text);
+        p.setStyle(Paint.Style.FILL);
+        p.setColor(0x33FFFFFF);
+        c.drawRect(x, tm + 102 * dp, xr, tm + 103 * dp, p);
+        text.setTextSize(12 * dp);
+        text.setLetterSpacing(0.18f);
+        text.setColor(0xB3FFFFFF);
+        c.drawText("ÂM LỊCH", x, tm + 128 * dp, text);
+        text.setLetterSpacing(0f);
+        text.setTextSize(26 * dp);
+        text.setColor(0xFFFFD27A);
+        c.drawText(info.day + " tháng " + info.monthWord + (info.leap ? " (nhuận)" : ""), x, tm + 160 * dp, text);
+        text.setTextSize(15 * dp);
+        text.setColor(Color.WHITE);
+        c.drawText("Năm " + info.yearCanChi, x, tm + 184 * dp, text);
+        text.setTextSize(14.5f * dp);
+        kv(c, "Ngày ", info.dayCanChi, x, tm + 214 * dp);
+        float w1 = text.measureText("Ngày " + info.dayCanChi);
+        kv(c, "  ·  Tháng ", info.monthCanChi, x + w1, tm + 214 * dp);
+        kv(c, "Tiết khí ", info.term, x, tm + 238 * dp);
+        text.setColor(info.good ? GREEN : PINK);
+        c.drawText("Ngày " + info.star + " — " + (info.good ? "hoàng đạo" : "hắc đạo"), x, tm + 262 * dp, text);
+        kv(c, "Xung tuổi ", info.xung, x, tm + 286 * dp);
+        if (info.holiday.length() > 0) {
+            text.setColor(ORANGE);
+            c.drawText("Ngày lễ: " + info.holiday, x, tm + 310 * dp, text);
+        }
+        text.setTextSize(12 * dp);
+        text.setLetterSpacing(0.18f);
+        text.setColor(0xB3FFFFFF);
+        c.drawText("GIỜ HOÀNG ĐẠO", x, tm + 342 * dp, text);
+        text.setLetterSpacing(0f);
+        text.setTextSize(14.5f * dp);
+        text.setColor(Color.WHITE);
+        castLine(c, info.hours1, x, tm + 366 * dp, xr - x);
+        castLine(c, info.hours2, x, tm + 388 * dp, xr - x);
+
+        // right card: the month
+        cardB.set(rx, tm, rx + rw, tm + ch);
+        glass(c, cardB, 24 * dp, 0x28, false);
+        text.setTextAlign(Paint.Align.CENTER);
+        text.setFakeBoldText(true);
+        text.setTextSize(22 * dp);
+        text.setColor(Color.WHITE);
+        c.drawText("Tháng " + calM + " · " + calY, rx + rw / 2f, tm + 38 * dp, text);
+        text.setFakeBoldText(false);
+        float hw2 = text.measureText("Tháng " + calM + " · " + calY) / 2f + 5 * dp;
+        text.setFakeBoldText(false);
+        tri(c, rx + rw / 2f - hw2 - 22 * dp, tm + 31 * dp, 6 * dp, true);
+        tri(c, rx + rw / 2f + hw2 + 22 * dp, tm + 31 * dp, 6 * dp, false);
+        float gx = rx + 20 * dp, colW = (rw - 40 * dp) / 7f;
+        String[] wd = { "T2", "T3", "T4", "T5", "T6", "T7", "CN" };
+        text.setTextSize(12 * dp);
+        for (int i = 0; i < 7; i++) {
+            text.setColor(i == 6 ? PINK : 0xB3FFFFFF);
+            c.drawText(wd[i], gx + colW * (i + 0.5f), tm + 68 * dp, text);
+        }
+        Calendar first = Calendar.getInstance();
+        first.clear();
+        first.set(calY, calM - 1, 1);
+        int off = (first.get(Calendar.DAY_OF_WEEK) + 5) % 7;   // Monday = 0
+        int days = first.getActualMaximum(Calendar.DAY_OF_MONTH);
+        float gridTop = tm + 80 * dp, rowH = (ch - 80 * dp - 36 * dp) / 6f;
+        for (int d = 1; d <= days; d++) {
+            int pos = off + d - 1, row = pos / 7, col = pos % 7;
+            Lunar.Info di = calInfo[d];
+            if (di == null) continue;
+            float cx = gx + colW * (col + 0.5f), top = gridTop + rowH * row;
+            boolean isSel = d == calD, isToday = calY == calTY && calM == calTM && d == calTD;
+            if (isSel) {
+                tmp.set(cx - colW * 0.38f, top + 2 * dp, cx + colW * 0.38f, top + rowH - 2 * dp);
+                p.setStyle(Paint.Style.FILL);
+                p.setColor(0xF2F1EDE6);
+                c.drawRoundRect(tmp, 14 * dp, 14 * dp, p);
+            } else if (isToday) {
+                tmp.set(cx - colW * 0.38f, top + 2 * dp, cx + colW * 0.38f, top + rowH - 2 * dp);
+                p.setStyle(Paint.Style.STROKE);
+                p.setStrokeWidth(1.5f * dp);
+                p.setColor(0x88FFFFFF);
+                c.drawRoundRect(tmp, 14 * dp, 14 * dp, p);
+                p.setStyle(Paint.Style.FILL);
+            }
+            text.setTextSize(24 * dp);
+            text.setTypeface(light);
+            text.setColor(isSel ? 0xFF1C1C22 : (col == 6 ? PINK : Color.WHITE));
+            c.drawText(String.valueOf(d), cx, top + rowH * 0.56f, text);
+            text.setTypeface(regular);
+            text.setTextSize(11 * dp);
+            boolean mark = di.day == 1 || di.day == 15;
+            text.setColor(isSel ? (mark ? 0xFFC77700 : 0xFF55555C) : (mark ? ORANGE : 0x99FFFFFF));
+            c.drawText(di.day == 1 ? di.day + "/" + di.month : String.valueOf(di.day), cx, top + rowH * 0.83f, text);
+            p.setStyle(Paint.Style.FILL);
+            if (di.good) { p.setColor(GREEN); c.drawCircle(cx - colW * 0.30f, top + rowH * 0.22f, 3 * dp, p); }
+            if (di.holiday.length() > 0) { p.setColor(ORANGE); c.drawCircle(cx + colW * 0.30f, top + rowH * 0.22f, 3 * dp, p); }
+        }
+        // legend
+        float ly = tm + ch - 16 * dp;
+        text.setTextAlign(Paint.Align.LEFT);
+        text.setTextSize(12 * dp);
+        float lx = rx + 24 * dp;
+        p.setColor(GREEN);
+        c.drawCircle(lx + 3 * dp, ly - 4 * dp, 3.5f * dp, p);
+        text.setColor(0xCCFFFFFF);
+        c.drawText("Ngày hoàng đạo", lx + 14 * dp, ly, text);
+        lx += 14 * dp + text.measureText("Ngày hoàng đạo") + 22 * dp;
+        p.setColor(ORANGE);
+        c.drawCircle(lx + 3 * dp, ly - 4 * dp, 3.5f * dp, p);
+        c.drawText("Ngày lễ", lx + 14 * dp, ly, text);
+        lx += 14 * dp + text.measureText("Ngày lễ") + 22 * dp;
+        text.setColor(ORANGE);
+        c.drawText("1/9", lx, ly, text);
+        text.setColor(0xCCFFFFFF);
+        c.drawText(" mùng 1  ·  rằm âm lịch", lx + text.measureText("1/9"), ly, text);
+    }
+
     // ----------------------------------------------------- phone settings panel
 
     List<String> dockPackages() {
@@ -1760,7 +2237,7 @@ final class HomeView extends View {
 
     private void drawName(Canvas c) {
         if (dock.isEmpty() || uiLabel == 0) return;
-        float maxW = W - 2 * mx - weatherWidth() - 30 * dp;   // measured first: it changes the paint
+        float maxW = W - 2 * mx;
         text.setTextAlign(Paint.Align.LEFT);
         text.setLetterSpacing(0f);
         text.setTypeface(light);

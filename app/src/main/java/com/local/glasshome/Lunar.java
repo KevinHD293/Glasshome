@@ -120,4 +120,91 @@ final class Lunar {
         if (lunarMonth >= 11 && diff < 4) lunarYear -= 1;
         return new int[] { lunarDay, lunarMonth, lunarYear, leap };
     }
+
+    // ------------------------------------------------------------------ day details (calendar widget)
+
+    private static final String[] TERMS = { "Xuân phân", "Thanh minh", "Cốc vũ", "Lập hạ", "Tiểu mãn", "Mang chủng", "Hạ chí",
+            "Tiểu thử", "Đại thử", "Lập thu", "Xử thử", "Bạch lộ", "Thu phân", "Hàn lộ", "Sương giáng", "Lập đông", "Tiểu tuyết",
+            "Đại tuyết", "Đông chí", "Tiểu hàn", "Đại hàn", "Lập xuân", "Vũ thủy", "Kinh trập" };
+    // the 12-day cycle of "Hoàng đạo / Hắc đạo" stars; the cycle starts at a chi that depends on the lunar month
+    private static final String[] STARS = { "Thanh Long", "Minh Đường", "Thiên Hình", "Chu Tước", "Kim Quỹ", "Bảo Quang",
+            "Bạch Hổ", "Ngọc Đường", "Thiên Lao", "Nguyên Vũ", "Tư Mệnh", "Câu Trần" };
+    private static final boolean[] STAR_GOOD = { true, true, false, false, true, true, false, true, false, false, true, false };
+    private static final int[] STAR_START = { 0, 2, 4, 6, 8, 10 };   // months 1/7, 2/8, 3/9, 4/10, 5/11, 6/12 -> Ty, Dan, Thin, Ngo, Than, Tuat
+    private static final String[] MONTH_WORDS = { "Giêng", "Hai", "Ba", "Tư", "Năm", "Sáu", "Bảy", "Tám", "Chín", "Mười", "Mười Một", "Chạp" };
+    private static final int[][] GOOD_HOURS = {
+            { 0, 1, 3, 6, 8, 9 },     // day Ty / Ngo
+            { 2, 3, 5, 8, 10, 11 },   // day Suu / Mui
+            { 0, 1, 4, 5, 7, 10 },    // day Dan / Than
+            { 0, 2, 3, 6, 7, 9 },     // day Mao / Dau
+            { 2, 4, 5, 8, 9, 11 },    // day Thin / Tuat
+            { 1, 4, 6, 7, 10, 11 } }; // day Ty / Hoi
+    private static final String[] HOUR_RANGE = { "23–1", "1–3", "3–5", "5–7", "7–9", "9–11", "11–13", "13–15", "15–17", "17–19", "19–21", "21–23" };
+
+    /** Everything the calendar screen shows about one solar date. */
+    static final class Info {
+        int day, month, year;          // lunar date
+        boolean leap;
+        String dayCanChi = "", monthCanChi = "", yearCanChi = "", term = "", star = "", xung = "", monthWord = "";
+        boolean good;                  // Hoàng đạo day
+        String hours1 = "", hours2 = "";   // good hours, three per line
+        String holiday = "";           // name of a public holiday / festival, or ""
+    }
+
+    private static int mod(int a, int n) { return ((a % n) + n) % n; }
+
+    private static String holidayOf(int dd, int mm, int ld, int lm, boolean leap) {
+        if (dd == 1 && mm == 1) return "Tết Dương lịch";
+        if (dd == 8 && mm == 3) return "Quốc tế Phụ nữ";
+        if (dd == 30 && mm == 4) return "Giải phóng miền Nam";
+        if (dd == 1 && mm == 5) return "Quốc tế Lao động";
+        if (dd == 1 && mm == 6) return "Quốc tế Thiếu nhi";
+        if (dd == 2 && mm == 9) return "Quốc khánh";
+        if (dd == 20 && mm == 10) return "Phụ nữ Việt Nam";
+        if (dd == 20 && mm == 11) return "Nhà giáo Việt Nam";
+        if (dd == 24 && mm == 12) return "Đêm Giáng sinh";
+        if (dd == 25 && mm == 12) return "Giáng sinh";
+        if (!leap) {
+            if (lm == 1 && ld <= 3) return "Tết Nguyên đán";
+            if (lm == 1 && ld == 15) return "Tết Nguyên tiêu";
+            if (lm == 3 && ld == 10) return "Giỗ Tổ Hùng Vương";
+            if (lm == 4 && ld == 15) return "Phật Đản";
+            if (lm == 5 && ld == 5) return "Tết Đoan ngọ";
+            if (lm == 7 && ld == 15) return "Vu Lan";
+            if (lm == 8 && ld == 15) return "Tết Trung thu";
+            if (lm == 12 && ld == 23) return "Ông Táo chầu trời";
+        }
+        return "";
+    }
+
+    static Info info(int yy, int mm, int dd) {
+        Info o = new Info();
+        try {
+            int[] l = solarToLunar(dd, mm, yy);
+            o.day = l[0]; o.month = l[1]; o.year = l[2]; o.leap = l[3] == 1;
+            int jd = jdFromDate(dd, mm, yy);
+            int dayCan = mod(jd + 9, 10), dayChi = mod(jd + 1, 12);
+            int yCan = mod(l[2] - 4, 10), yChi = mod(l[2] - 4, 12);
+            o.dayCanChi = CAN[dayCan] + " " + CHI[dayChi];
+            o.yearCanChi = CAN[yCan] + " " + CHI[yChi];
+            o.monthCanChi = CAN[mod(yCan * 2 + l[1] + 1, 10)] + " " + CHI[mod(l[1] + 1, 12)];
+            o.monthWord = MONTH_WORDS[mod(l[1] - 1, 12)];
+            o.term = TERMS[mod(INT(sunLongitude(jd - 0.5 - TZ / 24.0) / Math.PI * 12), 24)];
+            int pos = mod(dayChi - STAR_START[(l[1] - 1) % 6], 12);
+            o.star = STARS[pos];
+            o.good = STAR_GOOD[pos];
+            o.xung = CHI[mod(dayChi + 6, 12)];
+            int[] gh = GOOD_HOURS[dayChi % 6];
+            StringBuilder a = new StringBuilder(), b = new StringBuilder();
+            for (int i = 0; i < gh.length; i++) {
+                StringBuilder t = i < 3 ? a : b;
+                if (t.length() > 0) t.append("  ·  ");
+                t.append(CHI[gh[i]]).append(" (").append(HOUR_RANGE[gh[i]]).append(")");
+            }
+            o.hours1 = a.toString();
+            o.hours2 = b.toString();
+            o.holiday = holidayOf(dd, mm, l[0], l[1], o.leap);
+        } catch (Exception ignored) { }
+        return o;
+    }
 }
