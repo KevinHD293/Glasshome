@@ -48,7 +48,7 @@ public class MainActivity extends Activity {
     private static final String K_WDATA = "w_data";
     private static final String K_WNAME = "w_name";
     private static final String K_WALL = "wallpaper";
-    private static final String K_UIGAP = "ui_gap", K_UISHADE = "ui_shade", K_UIDOCKLIFT = "ui_dock_lift", K_UIWHEIGHT = "ui_widget_height", K_UICAL = "ui_calendar", K_UIWEA = "ui_weather", K_UIHDATE = "ui_header_date", K_UIHLUNAR = "ui_header_lunar", K_UICLOCKSIZE = "ui_clock_size", K_UIWBG = "ui_widget_bg";
+    private static final String K_UIGAP = "ui_gap", K_UISHADE = "ui_shade", K_UIDOCKLIFT = "ui_dock_lift", K_UIWHEIGHT = "ui_widget_height", K_UICAL = "ui_calendar", K_UIWEA = "ui_weather", K_UIHDATE = "ui_header_date", K_UIHLUNAR = "ui_header_lunar", K_UICLOCKSIZE = "ui_clock_size", K_UIWBG = "ui_widget_bg", K_UISHOWRAM = "ui_show_ram", K_UISHOWSTORAGE = "ui_show_storage";
     private static final String K_UIGLASS = "ui_glass", K_UISIZE = "ui_size", K_UILABEL = "ui_label", K_UICOLOR = "ui_color", K_UIPOP = "ui_pop";
     private static final String K_WALLSEL = "wall_sel";   // "builtin" or the id of an uploaded photo (w_<time>.jpg)
     private static final String K_HIDDEN = "hidden";   // apps hidden from the home screen (comma separated packages)
@@ -425,7 +425,7 @@ public class MainActivity extends Activity {
 
     // ---- look-and-feel options (the options panel on the TV and the phone page both use these) ----
 
-    void saveUi(boolean glass, int size, int label, boolean color, int pop, int gap, int shade, int dockLift, int widgetHeight, boolean calendar, boolean weather, boolean headerDate, boolean headerLunar, int clockSize, boolean widgetBg) {
+    void saveUi(boolean glass, int size, int label, boolean color, int pop, int gap, int shade, int dockLift, int widgetHeight, boolean calendar, boolean weather, boolean headerDate, boolean headerLunar, int clockSize, boolean widgetBg, boolean showRam, boolean showStorage) {
         prefs.edit().putBoolean(K_UIGLASS, glass).putInt(K_UISIZE, size).putInt(K_UILABEL, label)
                 .putBoolean(K_UICOLOR, color).putInt(K_UIPOP, pop)
                 .putInt(K_UIGAP, gap).putInt(K_UISHADE, shade)
@@ -434,7 +434,8 @@ public class MainActivity extends Activity {
                 .putBoolean(K_UICAL, calendar).putBoolean(K_UIWEA, weather)
                 .putBoolean(K_UIHDATE, headerDate).putBoolean(K_UIHLUNAR, headerLunar)
                 .putInt(K_UICLOCKSIZE, Math.max(40, Math.min(80, clockSize)))
-                .putBoolean(K_UIWBG, widgetBg).apply();
+                .putBoolean(K_UIWBG, widgetBg)
+                .putBoolean(K_UISHOWRAM, showRam).putBoolean(K_UISHOWSTORAGE, showStorage).apply();
     }
 
     private void applyUiToView() {
@@ -443,7 +444,8 @@ public class MainActivity extends Activity {
                 prefs.getInt(K_UIGAP, 24), prefs.getInt(K_UISHADE, 72), prefs.getInt(K_UIDOCKLIFT, 0), prefs.getInt(K_UIWHEIGHT, 92),
                 prefs.getBoolean(K_UICAL, true), prefs.getBoolean(K_UIWEA, true),
                 prefs.getBoolean(K_UIHDATE, true), prefs.getBoolean(K_UIHLUNAR, true),
-                prefs.getInt(K_UICLOCKSIZE, 54), prefs.getBoolean(K_UIWBG, true));
+                prefs.getInt(K_UICLOCKSIZE, 54), prefs.getBoolean(K_UIWBG, true),
+                prefs.getBoolean(K_UISHOWRAM, true), prefs.getBoolean(K_UISHOWSTORAGE, true));
     }
 
     // ---- "Dọn RAM": asks Android to kill the background processes of the other apps ----
@@ -580,6 +582,8 @@ public class MainActivity extends Activity {
         ui.put("headerLunar", prefs.getBoolean(K_UIHLUNAR, true) ? 1 : 0);
         ui.put("clockSize", prefs.getInt(K_UICLOCKSIZE, 54));
         ui.put("widgetBg", prefs.getBoolean(K_UIWBG, true) ? 1 : 0);
+        ui.put("showRam", prefs.getBoolean(K_UISHOWRAM, true) ? 1 : 0);
+        ui.put("showStorage", prefs.getBoolean(K_UISHOWSTORAGE, true) ? 1 : 0);
         o.put("ui", ui);
         o.put("dockMax", view.dockMax());
         org.json.JSONObject walls = new org.json.JSONObject();
@@ -623,7 +627,9 @@ public class MainActivity extends Activity {
                         o.optInt("headerDate", prefs.getBoolean(K_UIHDATE, true) ? 1 : 0) == 1,
                         o.optInt("headerLunar", prefs.getBoolean(K_UIHLUNAR, true) ? 1 : 0) == 1,
                         o.optInt("clockSize", prefs.getInt(K_UICLOCKSIZE, 54)),
-                        o.optInt("widgetBg", prefs.getBoolean(K_UIWBG, true) ? 1 : 0) == 1);
+                        o.optInt("widgetBg", prefs.getBoolean(K_UIWBG, true) ? 1 : 0) == 1,
+                        o.optInt("showRam", prefs.getBoolean(K_UISHOWRAM, true) ? 1 : 0) == 1,
+                        o.optInt("showStorage", prefs.getBoolean(K_UISHOWSTORAGE, true) ? 1 : 0) == 1);
                 applyUiToView();
                 return;
             }

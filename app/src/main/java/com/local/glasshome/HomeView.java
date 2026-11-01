@@ -91,12 +91,12 @@ final class HomeView extends View {
     // user options (options panel on the TV, or the phone page)
     private boolean uiGlass = false, uiColor = true, colorFollow = true, optOpen = false;
     private int uiSize = 0, uiLabel = 2, uiPop = 1, uiGap = 24, uiShade = 72, uiDockLift = 0, uiWidgetHeight = 92, uiClockSize = 54, optIdx = 0, topRow = 0;
-    private boolean uiCalendar = true, uiWeather = true, uiHeaderDate = true, uiHeaderLunar = true, uiWidgetBg = true;
+    private boolean uiCalendar = true, uiWeather = true, uiHeaderDate = true, uiHeaderLunar = true, uiWidgetBg = true, uiShowRam = true, uiShowStorage = true;
     private float labelSp = 22f, nameSp = 52f;
     private final RectF ramRect = new RectF();
-    private static final String[] OPT_TITLE = { "── DOCK ──", "Khay kính ở dock", "Cỡ icon ứng dụng", "Khoảng cách icon", "Nâng vị trí dock", "── HIỆU ỨNG ──", "Viền đổi màu theo app", "Phóng to khi chọn", "Độ tối bảng cài đặt", "── CHỮ ──", "Tên ứng dụng", "── WIDGET ──", "Hiện lịch", "Hiện thời tiết", "Chiều cao widget", "Nền widget", "── ĐỒNG HỒ ──", "Hiện ngày tháng", "Hiện lịch âm", "Cỡ đồng hồ", "Khôi phục giao diện", "Tuỳ chỉnh từ điện thoại" };
+    private static final String[] OPT_TITLE = { "── DOCK ──", "Khay kính ở dock", "Cỡ icon ứng dụng", "Khoảng cách icon", "Nâng vị trí dock", "── HIỆU ỨNG ──", "Viền đổi màu theo app", "Phóng to khi chọn", "Độ tối bảng cài đặt", "── CHỮ ──", "Tên ứng dụng", "── WIDGET ──", "Hiện lịch", "Hiện thời tiết", "Chiều cao widget", "Nền widget", "── ĐỒNG HỒ ──", "Hiện ngày tháng", "Hiện lịch âm", "Cỡ đồng hồ", "── THÔNG TIN ──", "Hiện RAM", "Hiện bộ nhớ", "Khôi phục giao diện", "Tuỳ chỉnh từ điện thoại" };
     private static final String[][] OPT_VALUES = { { "Tắt", "Bật" }, { "Lớn", "Vừa", "Nhỏ" }, { "Ẩn", "Nhỏ", "Vừa", "Lớn" }, { "Tắt", "Bật" }, { "Tắt", "Vừa", "Lớn" } };
-    private static boolean optHeader(int i) { return i == 0 || i == 5 || i == 9 || i == 11 || i == 16; }
+    private static boolean optHeader(int i) { return i == 0 || i == 5 || i == 9 || i == 11 || i == 16 || i == 20; }
     private static int optNext(int i, int direction) {
         int n = OPT_TITLE.length;
         do { i = Math.max(0, Math.min(n - 1, i + direction)); } while (optHeader(i) && i > 0 && i < n - 1);
@@ -1148,8 +1148,8 @@ final class HomeView extends View {
         text.setTextSize(12.5f * dp);
         text.setLetterSpacing(0.03f);
         text.setColor(0xCCFFFFFF);
-        drawFlush(c, memStr, mx, base + 34 * dp);
-        drawFlush(c, storStr, mx, base + 50 * dp);
+        if (uiShowRam) drawFlush(c, memStr, mx, base + 34 * dp);
+        if (uiShowStorage) drawFlush(c, storStr, mx, base + (uiShowRam ? 50 : 34) * dp);
         text.setLetterSpacing(0f);
     }
 
@@ -1425,6 +1425,8 @@ final class HomeView extends View {
             case 17: return uiHeaderDate ? "Bật" : "Tắt";
             case 18: return uiHeaderLunar ? "Bật" : "Tắt";
             case 19: return uiClockSize + " dp";
+            case 21: return uiShowRam ? "Bật" : "Tắt";
+            case 22: return uiShowStorage ? "Bật" : "Tắt";
             default: return "›";
         }
     }
@@ -1446,6 +1448,8 @@ final class HomeView extends View {
             case 17: uiHeaderDate = !uiHeaderDate; break;
             case 18: uiHeaderLunar = !uiHeaderLunar; break;
             case 19: uiClockSize = Math.max(40, Math.min(80, uiClockSize + d * 2)); break;
+            case 21: uiShowRam = !uiShowRam; break;
+            case 22: uiShowStorage = !uiShowStorage; break;
             default: return;
         }
         applyUi(true);
@@ -1469,8 +1473,8 @@ final class HomeView extends View {
             case KeyEvent.KEYCODE_ENTER:
             case KeyEvent.KEYCODE_NUMPAD_ENTER:
                 if (e.getRepeatCount() == 0) {
-                    if (optIdx == 21) { optOpen = false; openPhone(); }
-                    else if (optIdx == 20) resetUiDefaults();
+                    if (optIdx == 24) { optOpen = false; openPhone(); }
+                    else if (optIdx == 23) resetUiDefaults();
                     else optCycle(1);
                 }
                 break;
@@ -1490,7 +1494,7 @@ final class HomeView extends View {
         uiGap = 24;
         uiDockLift = 0;
         uiShade = 72;
-        uiWidgetHeight = 92; uiCalendar = true; uiWeather = true; uiHeaderDate = true; uiHeaderLunar = true; uiWidgetBg = true; uiClockSize = 54;
+        uiWidgetHeight = 92; uiCalendar = true; uiWeather = true; uiHeaderDate = true; uiHeaderLunar = true; uiWidgetBg = true; uiShowRam = true; uiShowStorage = true; uiClockSize = 54;
         applyUi(true);
         act.sfx.open();
     }
@@ -1523,14 +1527,14 @@ final class HomeView extends View {
         pop.t = popTarget;
         relayout();
         retarget(false);
-        if (persist) act.saveUi(uiGlass, uiSize, uiLabel, uiColor, uiPop, uiGap, uiShade, uiDockLift, uiWidgetHeight, uiCalendar, uiWeather, uiHeaderDate, uiHeaderLunar, uiClockSize, uiWidgetBg);
+        if (persist) act.saveUi(uiGlass, uiSize, uiLabel, uiColor, uiPop, uiGap, uiShade, uiDockLift, uiWidgetHeight, uiCalendar, uiWeather, uiHeaderDate, uiHeaderLunar, uiClockSize, uiWidgetBg, uiShowRam, uiShowStorage);
         invalidate();
     }
 
     /** Called by the activity with the saved options. */
-    void setUi(boolean glass, int size, int label, boolean color, int popMode, int gap, int shade, int dockLift, int widgetHeight, boolean calendar, boolean weather, boolean headerDate, boolean headerLunar, int clockSize, boolean widgetBg) {
+    void setUi(boolean glass, int size, int label, boolean color, int popMode, int gap, int shade, int dockLift, int widgetHeight, boolean calendar, boolean weather, boolean headerDate, boolean headerLunar, int clockSize, boolean widgetBg, boolean showRam, boolean showStorage) {
         uiWidgetHeight = Math.max(64, Math.min(176, widgetHeight));
-        uiCalendar = calendar; uiWeather = weather; uiHeaderDate = headerDate; uiHeaderLunar = headerLunar; uiClockSize = Math.max(40, Math.min(80, clockSize)); uiWidgetBg = widgetBg;
+        uiCalendar = calendar; uiWeather = weather; uiHeaderDate = headerDate; uiHeaderLunar = headerLunar; uiClockSize = Math.max(40, Math.min(80, clockSize)); uiWidgetBg = widgetBg; uiShowRam = showRam; uiShowStorage = showStorage;
         uiGlass = glass;
         uiSize = Math.max(0, Math.min(2, size));
         uiLabel = Math.max(0, Math.min(3, label));
