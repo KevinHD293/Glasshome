@@ -90,12 +90,12 @@ final class HomeView extends View {
 
     // user options (options panel on the TV, or the phone page)
     private boolean uiGlass = false, uiColor = true, colorFollow = true, optOpen = false;
-    private int uiSize = 0, uiLabel = 2, uiPop = 1, uiGap = 24, uiShade = 72, uiDockLift = 0, optIdx = 0, topRow = 0;
+    private int uiSize = 0, uiLabel = 2, uiPop = 1, uiGap = 24, uiShade = 72, uiDockLift = 0, uiWidgetHeight = 92, uiCalendar = true, uiWeather = true, optIdx = 0, topRow = 0;
     private float labelSp = 22f, nameSp = 52f;
     private final RectF ramRect = new RectF();
-    private static final String[] OPT_TITLE = { "── DOCK ──", "Khay kính ở dock", "Cỡ icon ứng dụng", "Khoảng cách icon", "Nâng vị trí dock", "── HIỆU ỨNG ──", "Viền đổi màu theo app", "Phóng to khi chọn", "Độ tối bảng cài đặt", "── CHỮ ──", "Tên ứng dụng", "Khôi phục giao diện", "Tuỳ chỉnh từ điện thoại" };
+    private static final String[] OPT_TITLE = { "── DOCK ──", "Khay kính ở dock", "Cỡ icon ứng dụng", "Khoảng cách icon", "Nâng vị trí dock", "── HIỆU ỨNG ──", "Viền đổi màu theo app", "Phóng to khi chọn", "Độ tối bảng cài đặt", "── CHỮ ──", "Tên ứng dụng", "── WIDGET ──", "Hiện lịch", "Hiện thời tiết", "Chiều cao widget", "Khôi phục giao diện", "Tuỳ chỉnh từ điện thoại" };
     private static final String[][] OPT_VALUES = { { "Tắt", "Bật" }, { "Lớn", "Vừa", "Nhỏ" }, { "Ẩn", "Nhỏ", "Vừa", "Lớn" }, { "Tắt", "Bật" }, { "Tắt", "Vừa", "Lớn" } };
-    private static boolean optHeader(int i) { return i == 0 || i == 5 || i == 9; }
+    private static boolean optHeader(int i) { return i == 0 || i == 5 || i == 9 || i == 11; }
     private static int optNext(int i, int direction) {
         int n = OPT_TITLE.length;
         do { i = Math.max(0, Math.min(n - 1, i + direction)); } while (optHeader(i) && i > 0 && i < n - 1);
@@ -343,7 +343,7 @@ final class HomeView extends View {
         slotW = tileW;
         slotH = tileH;
         bandH = slotH + 2 * padD;
-        dockTop = H - (56 + uiDockLift) * dp - bandH;
+        dockTop = H - (32 + uiDockLift) * dp - bandH; // v4: lower dock baseline by 24dp
         rowH = tileH + 64 * dp;
         gridTop = H + 24 * dp;
         pillH = 48 * dp;
@@ -363,8 +363,10 @@ final class HomeView extends View {
         float nameCap = uiLabel == 0 ? 0f : 0.72f * nameSp * dp + 8 * dp;
         float wBottom = dockTop - (uiLabel == 0 ? 22 * dp : 36 * dp + nameCap);
         float headerBottom = 106 * dp + 50 * dp + 14 * dp;
-        float wTop = Math.max(headerBottom, wBottom - 92 * dp);
-        widgetsOn = wBottom - wTop >= 56 * dp;
+        float wTop = Math.max(headerBottom, wBottom - uiWidgetHeight * dp);
+        widgetsOn = (uiCalendar || uiWeather) && wBottom - wTop >= 56 * dp;
+        if (!widgetsOn && zone == ZW) zone = dock.isEmpty() ? ZT : ZD;
+        if (widgetsOn && zone == ZW && ((!uiCalendar && wIdx == 0) || (!uiWeather && wIdx == 1))) wIdx = uiCalendar ? 0 : 1;
         float cardW = (W - 2 * mx - 16 * dp) / 2f;
         widgetRect[0].set(mx, wTop, mx + cardW, wBottom);
         widgetRect[1].set(mx + cardW + 16 * dp, wTop, W - mx, wBottom);
@@ -512,12 +514,12 @@ final class HomeView extends View {
             } else if (dy < 0) {
                 topRow = 0;
             } else if (dy > 0) {
-                if (widgetsOn) { zone = ZW; wIdx = 1; }
+                if (widgetsOn) { zone = ZW; wIdx = uiWeather ? 1 : 0; }
                 else if (!dock.isEmpty()) zone = ZD;
                 else if (!grid.isEmpty()) { zone = ZG; gridIdx = 0; }
             }
         } else if (zone == ZW) {
-            if (dx != 0) wIdx = Math.max(0, Math.min(1, wIdx + dx));
+            if (dx != 0) wIdx = !uiCalendar ? 1 : !uiWeather ? 0 : Math.max(0, Math.min(1, wIdx + dx));
             else if (dy < 0) { zone = ZT; topRow = 1; }
             else if (dy > 0) {
                 if (!dock.isEmpty()) { zone = ZD; dockIdx = wIdx == 0 ? 0 : dock.size() - 1; }
@@ -526,7 +528,7 @@ final class HomeView extends View {
         } else if (zone == ZD) {
             if (dx != 0) dockIdx = Math.max(0, Math.min(dock.size() - 1, dockIdx + dx));
             else if (dy < 0) {
-                if (widgetsOn) { zone = ZW; wIdx = dockIdx < (dock.size() + 1) / 2 ? 0 : 1; }
+                if (widgetsOn) { zone = ZW; wIdx = !uiCalendar ? 1 : !uiWeather ? 0 : (dockIdx < (dock.size() + 1) / 2 ? 0 : 1); }
                 else { zone = ZT; topRow = 1; }
             }
             else if (dy > 0 && !grid.isEmpty()) { zone = ZG; gridIdx = Math.min(dockIdx, grid.size() - 1); }
@@ -1413,6 +1415,9 @@ final class HomeView extends View {
             case 7: return OPT_VALUES[4][uiPop];
             case 8: return uiShade + "%";
             case 10: return OPT_VALUES[2][uiLabel];
+            case 12: return uiCalendar ? "Bật" : "Tắt";
+            case 13: return uiWeather ? "Bật" : "Tắt";
+            case 14: return uiWidgetHeight + " dp";
             default: return "›";
         }
     }
@@ -1427,6 +1432,9 @@ final class HomeView extends View {
             case 7: uiPop = (uiPop + d + 3) % 3; break;
             case 8: uiShade = Math.max(40, Math.min(95, uiShade + d * 5)); break;
             case 10: uiLabel = (uiLabel + d + 4) % 4; break;
+            case 12: uiCalendar = !uiCalendar; break;
+            case 13: uiWeather = !uiWeather; break;
+            case 14: uiWidgetHeight = Math.max(64, Math.min(128, uiWidgetHeight + d * 8)); break;
             default: return;
         }
         applyUi(true);
@@ -1450,8 +1458,8 @@ final class HomeView extends View {
             case KeyEvent.KEYCODE_ENTER:
             case KeyEvent.KEYCODE_NUMPAD_ENTER:
                 if (e.getRepeatCount() == 0) {
-                    if (optIdx == 12) { optOpen = false; openPhone(); }
-                    else if (optIdx == 11) resetUiDefaults();
+                    if (optIdx == 16) { optOpen = false; openPhone(); }
+                    else if (optIdx == 15) resetUiDefaults();
                     else optCycle(1);
                 }
                 break;
@@ -1471,6 +1479,7 @@ final class HomeView extends View {
         uiGap = 24;
         uiDockLift = 0;
         uiShade = 72;
+        uiWidgetHeight = 92; uiCalendar = true; uiWeather = true;
         applyUi(true);
         act.sfx.open();
     }
@@ -1503,12 +1512,14 @@ final class HomeView extends View {
         pop.t = popTarget;
         relayout();
         retarget(false);
-        if (persist) act.saveUi(uiGlass, uiSize, uiLabel, uiColor, uiPop, uiGap, uiShade, uiDockLift);
+        if (persist) act.saveUi(uiGlass, uiSize, uiLabel, uiColor, uiPop, uiGap, uiShade, uiDockLift, uiWidgetHeight, uiCalendar, uiWeather);
         invalidate();
     }
 
     /** Called by the activity with the saved options. */
-    void setUi(boolean glass, int size, int label, boolean color, int popMode, int gap, int shade, int dockLift) {
+    void setUi(boolean glass, int size, int label, boolean color, int popMode, int gap, int shade, int dockLift, int widgetHeight, boolean calendar, boolean weather) {
+        uiWidgetHeight = Math.max(64, Math.min(128, widgetHeight));
+        uiCalendar = calendar; uiWeather = weather;
         uiGlass = glass;
         uiSize = Math.max(0, Math.min(2, size));
         uiLabel = Math.max(0, Math.min(3, label));
@@ -1568,7 +1579,7 @@ final class HomeView extends View {
                 text.setTextAlign(Paint.Align.RIGHT);
                 text.setColor(i == optIdx ? Color.WHITE : 0xD0FFFFFF);
                 String v = optValue(i);
-                if (i == optIdx && i != 11 && i != 12) v = "‹  " + v + "  ›";
+                if (i == optIdx && i != 15 && i != 16) v = "‹  " + v + "  ›";
                 c.drawText(v, x + w - pad, by, text);
             }
         }
@@ -1610,9 +1621,8 @@ final class HomeView extends View {
 
     private void drawWidgets(Canvas c) {
         if (!widgetsOn) return;
-        for (int i = 0; i < 2; i++) glass(c, widgetRect[i], 20 * dp, 0x26, false);
-        drawCalendarWidget(c, widgetRect[0]);
-        drawWeatherWidget(c, widgetRect[1]);
+        if (uiCalendar) { glass(c, widgetRect[0], 20 * dp, 0x26, false); drawCalendarWidget(c, widgetRect[0]); }
+        if (uiWeather) { glass(c, widgetRect[1], 20 * dp, 0x26, false); drawWeatherWidget(c, widgetRect[1]); }
     }
 
     private void drawCalendarWidget(Canvas c, RectF r) {
