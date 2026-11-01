@@ -86,9 +86,15 @@
     <label>Lịch</label><select id="ui_calendar"><option value="1">Bật</option><option value="0">Tắt</option></select>
     <label>Thời tiết</label><select id="ui_weather"><option value="1">Bật</option><option value="0">Tắt</option></select>
     <label>Chiều cao widget</label>
-    <input id="ui_widgetheight" type="range" min="64" max="128" step="4" oninput="$('widgetheight_value').textContent=this.value+' dp'">
+    <input id="ui_widgetheight" type="range" min="64" max="176" step="4" oninput="$('widgetheight_value').textContent=this.value+' dp'">
     <div id="widgetheight_value" class="note">92 dp</div>
 
+    <label>Nền widget</label><select id="ui_widgetbg"><option value="1">Bật</option><option value="0">Ẩn</option></select>
+    <h3>Đồng hồ</h3>
+    <label>Hiện ngày tháng cạnh đồng hồ</label><select id="ui_headerdate"><option value="1">Bật</option><option value="0">Ẩn</option></select>
+    <label>Hiện lịch âm cạnh đồng hồ</label><select id="ui_headerlunar"><option value="1">Bật</option><option value="0">Ẩn</option></select>
+    <label>Kích thước đồng hồ</label><input id="ui_clocksize" type="range" min="40" max="80" step="2" oninput="$('clocksize_value').textContent=this.value+' dp'">
+    <div id="clocksize_value" class="note">54 dp</div>
     <button onclick="saveUi()">Lưu giao diện</button>
   </section>
 
@@ -185,6 +191,9 @@ function render() {
   $('ui_docklift').value = (u.dockLift === undefined ? 0 : u.dockLift); $('docklift_value').textContent = $('ui_docklift').value + ' dp';
   $('ui_calendar').value = (u.calendar === undefined ? 1 : u.calendar); $('ui_weather').value = (u.weather === undefined ? 1 : u.weather);
   $('ui_widgetheight').value = (u.widgetHeight === undefined ? 92 : u.widgetHeight); $('widgetheight_value').textContent = $('ui_widgetheight').value + ' dp';
+  $('ui_widgetbg').value = (u.widgetBg === undefined ? 1 : u.widgetBg);
+  $('ui_headerdate').value = (u.headerDate === undefined ? 1 : u.headerDate); $('ui_headerlunar').value = (u.headerLunar === undefined ? 1 : u.headerLunar);
+  $('ui_clocksize').value = (u.clockSize === undefined ? 54 : u.clockSize); $('clocksize_value').textContent = $('ui_clocksize').value + ' dp';
   $('ui_shade').value = (u.shade === undefined ? 72 : u.shade); $('shade_value').textContent = $('ui_shade').value + '%';
   $('sound').checked = !!S.sound;
   $('vol').value = Math.round((S.vol || 0) * 100);
@@ -204,7 +213,7 @@ function saveHidden() {
   api('/api/hidden', { hidden: h }).then(function () { toast('Đã lưu danh sách ẩn'); }).catch(fail);
 }
 function saveUi() {
-  api('/api/ui', { glass: +$('ui_glass').value, size: +$('ui_size').value, label: +$('ui_label').value, color: +$('ui_color').value, pop: +$('ui_pop').value, gap: +$('ui_gap').value, shade: +$('ui_shade').value, dockLift: +$('ui_docklift').value, widgetHeight: +$('ui_widgetheight').value, calendar: +$('ui_calendar').value, weather: +$('ui_weather').value })
+  api('/api/ui', { glass: +$('ui_glass').value, size: +$('ui_size').value, label: +$('ui_label').value, color: +$('ui_color').value, pop: +$('ui_pop').value, gap: +$('ui_gap').value, shade: +$('ui_shade').value, dockLift: +$('ui_docklift').value, widgetHeight: +$('ui_widgetheight').value, calendar: +$('ui_calendar').value, weather: +$('ui_weather').value, widgetBg: +$('ui_widgetbg').value, headerDate: +$('ui_headerdate').value, headerLunar: +$('ui_headerlunar').value, clockSize: +$('ui_clocksize').value })
     .then(function () { toast('Đã lưu giao diện'); refresh(); }).catch(fail);
 }
 function refresh() {
