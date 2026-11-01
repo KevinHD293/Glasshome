@@ -79,6 +79,9 @@
     <label class="lab">Độ tối bảng cài đặt (%)</label>
     <input id="ui_shade" type="range" min="40" max="95" step="5" oninput="$('shade_value').textContent=this.value+'%'">
     <div id="shade_value" class="note">72%</div>
+    <label class="lab">Nâng vị trí dock (dp)</label>
+    <input id="ui_docklift" type="range" min="0" max="48" step="8" oninput="$('docklift_value').textContent=this.value+' dp'">
+    <div id="docklift_value" class="note">0 dp</div>
     <button onclick="saveUi()">Lưu giao diện</button>
   </section>
 
@@ -172,6 +175,7 @@ function render() {
   $('ui_glass').value = u.glass || 0; $('ui_size').value = u.size || 0; $('ui_label').value = (u.label === undefined ? 2 : u.label);
   $('ui_color').value = (u.color === undefined ? 1 : u.color); $('ui_pop').value = (u.pop === undefined ? 1 : u.pop);
   $('ui_gap').value = (u.gap === undefined ? 24 : u.gap); $('gap_value').textContent = $('ui_gap').value + ' dp';
+  $('ui_docklift').value = (u.dockLift === undefined ? 0 : u.dockLift); $('docklift_value').textContent = $('ui_docklift').value + ' dp';
   $('ui_shade').value = (u.shade === undefined ? 72 : u.shade); $('shade_value').textContent = $('ui_shade').value + '%';
   $('sound').checked = !!S.sound;
   $('vol').value = Math.round((S.vol || 0) * 100);
@@ -191,7 +195,7 @@ function saveHidden() {
   api('/api/hidden', { hidden: h }).then(function () { toast('Đã lưu danh sách ẩn'); }).catch(fail);
 }
 function saveUi() {
-  api('/api/ui', { glass: +$('ui_glass').value, size: +$('ui_size').value, label: +$('ui_label').value, color: +$('ui_color').value, pop: +$('ui_pop').value, gap: +$('ui_gap').value, shade: +$('ui_shade').value })
+  api('/api/ui', { glass: +$('ui_glass').value, size: +$('ui_size').value, label: +$('ui_label').value, color: +$('ui_color').value, pop: +$('ui_pop').value, gap: +$('ui_gap').value, shade: +$('ui_shade').value, dockLift: +$('ui_docklift').value })
     .then(function () { toast('Đã lưu giao diện'); refresh(); }).catch(fail);
 }
 function refresh() {

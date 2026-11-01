@@ -90,12 +90,12 @@ final class HomeView extends View {
 
     // user options (options panel on the TV, or the phone page)
     private boolean uiGlass = false, uiColor = true, colorFollow = true, optOpen = false;
-    private int uiSize = 0, uiLabel = 2, uiPop = 1, uiGap = 24, uiShade = 72, optIdx = 0, topRow = 0;
+    private int uiSize = 0, uiLabel = 2, uiPop = 1, uiGap = 24, uiShade = 72, uiDockLift = 0, optIdx = 0, topRow = 0;
     private float labelSp = 22f, nameSp = 52f;
     private final RectF ramRect = new RectF();
-    private static final String[] OPT_TITLE = { "── DOCK ──", "Khay kính ở dock", "Cỡ icon ứng dụng", "Khoảng cách icon", "── HIỆU ỨNG ──", "Viền đổi màu theo app", "Phóng to khi chọn", "Độ tối bảng cài đặt", "── CHỮ ──", "Tên ứng dụng", "Khôi phục giao diện", "Tuỳ chỉnh từ điện thoại" };
+    private static final String[] OPT_TITLE = { "── DOCK ──", "Khay kính ở dock", "Cỡ icon ứng dụng", "Khoảng cách icon", "Nâng vị trí dock", "── HIỆU ỨNG ──", "Viền đổi màu theo app", "Phóng to khi chọn", "Độ tối bảng cài đặt", "── CHỮ ──", "Tên ứng dụng", "Khôi phục giao diện", "Tuỳ chỉnh từ điện thoại" };
     private static final String[][] OPT_VALUES = { { "Tắt", "Bật" }, { "Lớn", "Vừa", "Nhỏ" }, { "Ẩn", "Nhỏ", "Vừa", "Lớn" }, { "Tắt", "Bật" }, { "Tắt", "Vừa", "Lớn" } };
-    private static boolean optHeader(int i) { return i == 0 || i == 4 || i == 8; }
+    private static boolean optHeader(int i) { return i == 0 || i == 5 || i == 9; }
     private static int optNext(int i, int direction) {
         int n = OPT_TITLE.length;
         do { i = Math.max(0, Math.min(n - 1, i + direction)); } while (optHeader(i) && i > 0 && i < n - 1);
@@ -343,7 +343,7 @@ final class HomeView extends View {
         slotW = tileW;
         slotH = tileH;
         bandH = slotH + 2 * padD;
-        dockTop = H - 56 * dp - bandH;
+        dockTop = H - (56 + uiDockLift) * dp - bandH;
         rowH = tileH + 64 * dp;
         gridTop = H + 24 * dp;
         pillH = 48 * dp;
@@ -1408,10 +1408,11 @@ final class HomeView extends View {
             case 1: return OPT_VALUES[0][uiGlass ? 1 : 0];
             case 2: return OPT_VALUES[1][uiSize];
             case 3: return uiGap + " dp";
-            case 5: return OPT_VALUES[3][uiColor ? 1 : 0];
-            case 6: return OPT_VALUES[4][uiPop];
-            case 7: return uiShade + "%";
-            case 9: return OPT_VALUES[2][uiLabel];
+            case 4: return uiDockLift + " dp";
+            case 6: return OPT_VALUES[3][uiColor ? 1 : 0];
+            case 7: return OPT_VALUES[4][uiPop];
+            case 8: return uiShade + "%";
+            case 10: return OPT_VALUES[2][uiLabel];
             default: return "›";
         }
     }
@@ -1421,10 +1422,11 @@ final class HomeView extends View {
             case 1: uiGlass = !uiGlass; break;
             case 2: uiSize = (uiSize + d + 3) % 3; break;
             case 3: uiGap = Math.max(8, Math.min(48, uiGap + d * 4)); break;
-            case 5: uiColor = !uiColor; break;
-            case 6: uiPop = (uiPop + d + 3) % 3; break;
-            case 7: uiShade = Math.max(40, Math.min(95, uiShade + d * 5)); break;
-            case 9: uiLabel = (uiLabel + d + 4) % 4; break;
+            case 4: uiDockLift = Math.max(0, Math.min(48, uiDockLift + d * 8)); break;
+            case 6: uiColor = !uiColor; break;
+            case 7: uiPop = (uiPop + d + 3) % 3; break;
+            case 8: uiShade = Math.max(40, Math.min(95, uiShade + d * 5)); break;
+            case 10: uiLabel = (uiLabel + d + 4) % 4; break;
             default: return;
         }
         applyUi(true);
@@ -1448,8 +1450,8 @@ final class HomeView extends View {
             case KeyEvent.KEYCODE_ENTER:
             case KeyEvent.KEYCODE_NUMPAD_ENTER:
                 if (e.getRepeatCount() == 0) {
-                    if (optIdx == 11) { optOpen = false; openPhone(); }
-                    else if (optIdx == 10) resetUiDefaults();
+                    if (optIdx == 12) { optOpen = false; openPhone(); }
+                    else if (optIdx == 11) resetUiDefaults();
                     else optCycle(1);
                 }
                 break;
@@ -1467,6 +1469,7 @@ final class HomeView extends View {
         uiColor = true;
         uiPop = 1;
         uiGap = 24;
+        uiDockLift = 0;
         uiShade = 72;
         applyUi(true);
         act.sfx.open();
@@ -1500,12 +1503,12 @@ final class HomeView extends View {
         pop.t = popTarget;
         relayout();
         retarget(false);
-        if (persist) act.saveUi(uiGlass, uiSize, uiLabel, uiColor, uiPop, uiGap, uiShade);
+        if (persist) act.saveUi(uiGlass, uiSize, uiLabel, uiColor, uiPop, uiGap, uiShade, uiDockLift);
         invalidate();
     }
 
     /** Called by the activity with the saved options. */
-    void setUi(boolean glass, int size, int label, boolean color, int popMode, int gap, int shade) {
+    void setUi(boolean glass, int size, int label, boolean color, int popMode, int gap, int shade, int dockLift) {
         uiGlass = glass;
         uiSize = Math.max(0, Math.min(2, size));
         uiLabel = Math.max(0, Math.min(3, label));
@@ -1513,6 +1516,7 @@ final class HomeView extends View {
         uiPop = Math.max(0, Math.min(2, popMode));
         uiGap = Math.max(8, Math.min(48, gap));
         uiShade = Math.max(40, Math.min(95, shade));
+        uiDockLift = Math.max(0, Math.min(48, dockLift));
         applyUi(false);
         retarget(true);
     }
@@ -1564,7 +1568,7 @@ final class HomeView extends View {
                 text.setTextAlign(Paint.Align.RIGHT);
                 text.setColor(i == optIdx ? Color.WHITE : 0xD0FFFFFF);
                 String v = optValue(i);
-                if (i == optIdx && i != 10 && i != 11) v = "‹  " + v + "  ›";
+                if (i == optIdx && i != 11 && i != 12) v = "‹  " + v + "  ›";
                 c.drawText(v, x + w - pad, by, text);
             }
         }
