@@ -90,13 +90,17 @@ final class HomeView extends View {
 
     // user options (options panel on the TV, or the phone page)
     private boolean uiGlass = false, uiColor = true, colorFollow = true, optOpen = false;
-    private int uiSize = 0, uiLabel = 2, uiPop = 1, optIdx = 0, topRow = 0;
+    private int uiSize = 0, uiLabel = 2, uiPop = 1, uiGap = 24, uiShade = 72, optIdx = 0, topRow = 0;
     private float labelSp = 22f, nameSp = 52f;
     private final RectF ramRect = new RectF();
-    private static final String[] OPT_TITLE = { "Khay kính ở dock", "Cỡ icon ứng dụng", "Tên ứng dụng",
-            "Viền đổi màu theo app", "Phóng to khi chọn", "Khôi phục giao diện", "Tuỳ chỉnh từ điện thoại" };
-    private static final String[][] OPT_VALUES = { { "Tắt", "Bật" }, { "Lớn", "Vừa", "Nhỏ" }, { "Ẩn", "Nhỏ", "Vừa", "Lớn" },
-            { "Tắt", "Bật" }, { "Tắt", "Vừa", "Lớn" } };
+    private static final String[] OPT_TITLE = { "── DOCK ──", "Khay kính ở dock", "Cỡ icon ứng dụng", "Khoảng cách icon", "── HIỆU ỨNG ──", "Viền đổi màu theo app", "Phóng to khi chọn", "Độ tối bảng cài đặt", "── CHỮ ──", "Tên ứng dụng", "Khôi phục giao diện", "Tuỳ chỉnh từ điện thoại" };
+    private static final String[][] OPT_VALUES = { { "Tắt", "Bật" }, { "Lớn", "Vừa", "Nhỏ" }, { "Ẩn", "Nhỏ", "Vừa", "Lớn" }, { "Tắt", "Bật" }, { "Tắt", "Vừa", "Lớn" } };
+    private static boolean optHeader(int i) { return i == 0 || i == 4 || i == 8; }
+    private static int optNext(int i, int direction) {
+        int n = OPT_TITLE.length;
+        do { i = Math.max(0, Math.min(n - 1, i + direction)); } while (optHeader(i) && i > 0 && i < n - 1);
+        return i;
+    }
     private String phoneUrl = "", phonePin = "";
     private String castName = "", castNet = "";
     private int menuIdx = 0;
@@ -331,7 +335,7 @@ final class HomeView extends View {
         H = getHeight();
         mx = 64 * dp;
         padD = 24 * dp;
-        gapD = 24 * dp;
+        gapD = uiGap * dp;
         // dock and grid share one tile size and the same four columns, edge to edge between the margins
         tileW = (W - 2 * mx - (cols - 1) * gapD) / cols;
         tileH = tileW * 9f / 16f;
@@ -1399,53 +1403,53 @@ final class HomeView extends View {
 
     // -------------------------------------------------------------- options panel
 
-    private int optGet(int i) {
+    private String optValue(int i) {
         switch (i) {
-            case 0: return uiGlass ? 1 : 0;
-            case 1: return uiSize;
-            case 2: return uiLabel;
-            case 3: return uiColor ? 1 : 0;
-            default: return uiPop;
+            case 1: return OPT_VALUES[0][uiGlass ? 1 : 0];
+            case 2: return OPT_VALUES[1][uiSize];
+            case 3: return uiGap + " dp";
+            case 5: return OPT_VALUES[3][uiColor ? 1 : 0];
+            case 6: return OPT_VALUES[4][uiPop];
+            case 7: return uiShade + "%";
+            case 9: return OPT_VALUES[2][uiLabel];
+            default: return "›";
         }
-    }
-
-    private void optSet(int i, int v) {
-        switch (i) {
-            case 0: uiGlass = v == 1; break;
-            case 1: uiSize = v; break;
-            case 2: uiLabel = v; break;
-            case 3: uiColor = v == 1; break;
-            default: uiPop = v; break;
-        }
-        applyUi(true);
     }
 
     private void optCycle(int d) {
-        int n = OPT_VALUES[optIdx].length;
-        optSet(optIdx, (optGet(optIdx) + d + n) % n);
+        switch (optIdx) {
+            case 1: uiGlass = !uiGlass; break;
+            case 2: uiSize = (uiSize + d + 3) % 3; break;
+            case 3: uiGap = Math.max(8, Math.min(48, uiGap + d * 4)); break;
+            case 5: uiColor = !uiColor; break;
+            case 6: uiPop = (uiPop + d + 3) % 3; break;
+            case 7: uiShade = Math.max(40, Math.min(95, uiShade + d * 5)); break;
+            case 9: uiLabel = (uiLabel + d + 4) % 4; break;
+            default: return;
+        }
+        applyUi(true);
         act.sfx.move();
     }
 
     private void openOptions() {
         optOpen = true;
-        optIdx = 0;
+        optIdx = 1;
         act.sfx.open();
         invalidate();
     }
 
     private boolean optDown(int k, KeyEvent e) {
-        int n = OPT_TITLE.length;
         switch (k) {
-            case KeyEvent.KEYCODE_DPAD_UP: optIdx = Math.max(0, optIdx - 1); break;
-            case KeyEvent.KEYCODE_DPAD_DOWN: optIdx = Math.min(n - 1, optIdx + 1); break;
-            case KeyEvent.KEYCODE_DPAD_LEFT: if (optIdx < OPT_VALUES.length) optCycle(-1); break;
-            case KeyEvent.KEYCODE_DPAD_RIGHT: if (optIdx < OPT_VALUES.length) optCycle(1); break;
+            case KeyEvent.KEYCODE_DPAD_UP: optIdx = optNext(optIdx, -1); break;
+            case KeyEvent.KEYCODE_DPAD_DOWN: optIdx = optNext(optIdx, 1); break;
+            case KeyEvent.KEYCODE_DPAD_LEFT: optCycle(-1); break;
+            case KeyEvent.KEYCODE_DPAD_RIGHT: optCycle(1); break;
             case KeyEvent.KEYCODE_DPAD_CENTER:
             case KeyEvent.KEYCODE_ENTER:
             case KeyEvent.KEYCODE_NUMPAD_ENTER:
                 if (e.getRepeatCount() == 0) {
-                    if (optIdx == n - 1) { optOpen = false; openPhone(); }
-                    else if (optIdx == n - 2) { resetUiDefaults(); }
+                    if (optIdx == 11) { optOpen = false; openPhone(); }
+                    else if (optIdx == 10) resetUiDefaults();
                     else optCycle(1);
                 }
                 break;
@@ -1455,13 +1459,15 @@ final class HomeView extends View {
         return true;
     }
 
-    /** Restores only appearance settings; never touches apps, dock order, wallpaper or debloat. */
+    /** Appearance only: never touches the app list, dock order, wallpaper or system packages. */
     private void resetUiDefaults() {
         uiGlass = false;
         uiSize = 0;
         uiLabel = 2;
         uiColor = true;
         uiPop = 1;
+        uiGap = 24;
+        uiShade = 72;
         applyUi(true);
         act.sfx.open();
     }
@@ -1494,17 +1500,19 @@ final class HomeView extends View {
         pop.t = popTarget;
         relayout();
         retarget(false);
-        if (persist) act.saveUi(uiGlass, uiSize, uiLabel, uiColor, uiPop);
+        if (persist) act.saveUi(uiGlass, uiSize, uiLabel, uiColor, uiPop, uiGap, uiShade);
         invalidate();
     }
 
     /** Called by the activity with the saved options. */
-    void setUi(boolean glass, int size, int label, boolean color, int popMode) {
+    void setUi(boolean glass, int size, int label, boolean color, int popMode, int gap, int shade) {
         uiGlass = glass;
         uiSize = Math.max(0, Math.min(2, size));
         uiLabel = Math.max(0, Math.min(3, label));
         uiColor = color;
         uiPop = Math.max(0, Math.min(2, popMode));
+        uiGap = Math.max(8, Math.min(48, gap));
+        uiShade = Math.max(40, Math.min(95, shade));
         applyUi(false);
         retarget(true);
     }
@@ -1512,59 +1520,58 @@ final class HomeView extends View {
     private void drawOptions(Canvas c) {
         if (!optOpen) return;
         p.setStyle(Paint.Style.FILL);
-        p.setColor(0xB0000000);
+        p.setColor(0xA0000000);
         c.drawRect(0, 0, W, H, p);
-
         int n = OPT_TITLE.length;
-        float w = Math.min(W - 2 * mx, 640 * dp), rowH4 = 50 * dp, titleH = 85 * dp;
-        float h = titleH + n * rowH4 + 34 * dp;
+        float w = Math.min(W - 2 * mx, 680 * dp);
+        float rowH4 = Math.min(46 * dp, (H - 155 * dp) / n);
+        float titleH = 76 * dp;
+        float h = titleH + n * rowH4 + 28 * dp;
         float x = (W - w) / 2f, y = (H - h) / 2f, pad = 26 * dp;
         rf.set(x, y, x + w, y + h);
-        p.setColor(0xF2222226);
-        c.drawRoundRect(rf, 28 * dp, 28 * dp, p);
+        p.setColor((Math.round(uiShade * 255f / 100f) << 24) | 0x00222226);
+        c.drawRoundRect(rf, 24 * dp, 24 * dp, p);
         p.setStyle(Paint.Style.STROKE);
         p.setStrokeWidth(1.5f * dp);
-        p.setColor(0x50FFFFFF);
-        c.drawRoundRect(rf, 28 * dp, 28 * dp, p);
+        p.setColor(0x60FFFFFF);
+        c.drawRoundRect(rf, 24 * dp, 24 * dp, p);
         p.setStyle(Paint.Style.FILL);
-
         text.setTextAlign(Paint.Align.LEFT);
         text.setTypeface(light);
-        text.setTextSize(26 * dp);
+        text.setTextSize(25 * dp);
         text.setColor(Color.WHITE);
-        c.drawText("Tuỳ chỉnh giao diện", x + pad, y + 38 * dp, text);
-        text.setTextSize(14 * dp);
-        text.setColor(0xAAFFFFFF);
-        c.drawText("← → thay đổi  •  OK chọn  •  Back đóng", x + pad, y + 65 * dp, text);
-
-        text.setTypeface(regular);
-        text.setTextSize(20 * dp);
-        Paint.FontMetrics fm = text.getFontMetrics();
+        c.drawText("Tuỳ chỉnh giao diện", x + pad, y + 33 * dp, text);
+        text.setTextSize(13 * dp);
+        text.setColor(0xCCFFFFFF);
+        c.drawText("↑ ↓ chọn  •  ← → chỉnh  •  OK xác nhận  •  Back đóng", x + pad, y + 58 * dp, text);
+        Paint.FontMetrics fm;
         for (int i = 0; i < n; i++) {
             float top = y + titleH + i * rowH4;
+            boolean header = optHeader(i);
+            text.setTypeface(header ? regular : regular);
+            text.setTextSize((header ? 13 : 18) * dp);
+            fm = text.getFontMetrics();
             float by = top + rowH4 / 2f - (fm.ascent + fm.descent) / 2f;
             if (i == optIdx) {
-                tmp.set(x + 10 * dp, top + 3 * dp, x + w - 10 * dp, top + rowH4 - 3 * dp);
+                tmp.set(x + 10 * dp, top + 2 * dp, x + w - 10 * dp, top + rowH4 - 2 * dp);
                 p.setColor(0x55FFFFFF);
-                c.drawRoundRect(tmp, 16 * dp, 16 * dp, p);
+                c.drawRoundRect(tmp, 12 * dp, 12 * dp, p);
             }
             text.setTextAlign(Paint.Align.LEFT);
-            text.setColor(Color.WHITE);
+            text.setColor(header ? 0xFFAAC6EA : Color.WHITE);
             c.drawText(OPT_TITLE[i], x + pad, by, text);
-            text.setTextAlign(Paint.Align.RIGHT);
-            if (i < OPT_VALUES.length) {
-                String v = OPT_VALUES[i][optGet(i)];
-                text.setColor(i == optIdx ? Color.WHITE : 0xB3FFFFFF);
-                c.drawText(i == optIdx ? "‹  " + v + "  ›" : v, x + w - pad, by, text);
-            } else {
-                text.setColor(0xB3FFFFFF);
-                c.drawText("›", x + w - pad, by, text);
+            if (!header) {
+                text.setTextAlign(Paint.Align.RIGHT);
+                text.setColor(i == optIdx ? Color.WHITE : 0xD0FFFFFF);
+                String v = optValue(i);
+                if (i == optIdx && i != 10 && i != 11) v = "‹  " + v + "  ›";
+                c.drawText(v, x + w - pad, by, text);
             }
         }
         text.setTextAlign(Paint.Align.LEFT);
-        text.setTextSize(13 * dp);
-        text.setColor(0x99FFFFFF);
-        c.drawText("Thay đổi được lưu tự động • Không cần cài lại APK", x + pad, y + h - 12 * dp, text);
+        text.setTextSize(12 * dp);
+        text.setColor(0xCCFFFFFF);
+        c.drawText("Tự động lưu • Thay đổi trực tiếp • Không cần build lại", x + pad, y + h - 9 * dp, text);
     }
 
     // ================================================================ widgets and their full screens

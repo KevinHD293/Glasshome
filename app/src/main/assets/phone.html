@@ -73,6 +73,12 @@
     <select id="ui_color"><option value="0">Tắt</option><option value="1">Bật</option></select>
     <label class="lab">Phóng to ô khi chọn</label>
     <select id="ui_pop"><option value="0">Tắt</option><option value="1">Vừa</option><option value="2">Lớn</option></select>
+    <label class="lab">Khoảng cách icon dock và lưới (dp)</label>
+    <input id="ui_gap" type="range" min="8" max="48" step="4" oninput="$('gap_value').textContent=this.value+' dp'">
+    <div id="gap_value" class="note">24 dp</div>
+    <label class="lab">Độ tối bảng cài đặt (%)</label>
+    <input id="ui_shade" type="range" min="40" max="95" step="5" oninput="$('shade_value').textContent=this.value+'%'">
+    <div id="shade_value" class="note">72%</div>
     <button onclick="saveUi()">Lưu giao diện</button>
   </section>
 
@@ -165,6 +171,8 @@ function render() {
   var u = S.ui || {};
   $('ui_glass').value = u.glass || 0; $('ui_size').value = u.size || 0; $('ui_label').value = (u.label === undefined ? 2 : u.label);
   $('ui_color').value = (u.color === undefined ? 1 : u.color); $('ui_pop').value = (u.pop === undefined ? 1 : u.pop);
+  $('ui_gap').value = (u.gap === undefined ? 24 : u.gap); $('gap_value').textContent = $('ui_gap').value + ' dp';
+  $('ui_shade').value = (u.shade === undefined ? 72 : u.shade); $('shade_value').textContent = $('ui_shade').value + '%';
   $('sound').checked = !!S.sound;
   $('vol').value = Math.round((S.vol || 0) * 100);
   $('wall').checked = !!S.wallpaper;
@@ -183,7 +191,7 @@ function saveHidden() {
   api('/api/hidden', { hidden: h }).then(function () { toast('Đã lưu danh sách ẩn'); }).catch(fail);
 }
 function saveUi() {
-  api('/api/ui', { glass: +$('ui_glass').value, size: +$('ui_size').value, label: +$('ui_label').value, color: +$('ui_color').value, pop: +$('ui_pop').value })
+  api('/api/ui', { glass: +$('ui_glass').value, size: +$('ui_size').value, label: +$('ui_label').value, color: +$('ui_color').value, pop: +$('ui_pop').value, gap: +$('ui_gap').value, shade: +$('ui_shade').value })
     .then(function () { toast('Đã lưu giao diện'); refresh(); }).catch(fail);
 }
 function refresh() {

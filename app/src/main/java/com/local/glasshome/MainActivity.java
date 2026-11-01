@@ -48,6 +48,7 @@ public class MainActivity extends Activity {
     private static final String K_WDATA = "w_data";
     private static final String K_WNAME = "w_name";
     private static final String K_WALL = "wallpaper";
+    private static final String K_UIGAP = "ui_gap", K_UISHADE = "ui_shade";
     private static final String K_UIGLASS = "ui_glass", K_UISIZE = "ui_size", K_UILABEL = "ui_label", K_UICOLOR = "ui_color", K_UIPOP = "ui_pop";
     private static final String K_WALLSEL = "wall_sel";   // "builtin" or the id of an uploaded photo (w_<time>.jpg)
     private static final String K_HIDDEN = "hidden";   // apps hidden from the home screen (comma separated packages)
@@ -424,14 +425,16 @@ public class MainActivity extends Activity {
 
     // ---- look-and-feel options (the options panel on the TV and the phone page both use these) ----
 
-    void saveUi(boolean glass, int size, int label, boolean color, int pop) {
+    void saveUi(boolean glass, int size, int label, boolean color, int pop, int gap, int shade) {
         prefs.edit().putBoolean(K_UIGLASS, glass).putInt(K_UISIZE, size).putInt(K_UILABEL, label)
-                .putBoolean(K_UICOLOR, color).putInt(K_UIPOP, pop).apply();
+                .putBoolean(K_UICOLOR, color).putInt(K_UIPOP, pop)
+                .putInt(K_UIGAP, gap).putInt(K_UISHADE, shade).apply();
     }
 
     private void applyUiToView() {
         view.setUi(prefs.getBoolean(K_UIGLASS, false), prefs.getInt(K_UISIZE, 0), prefs.getInt(K_UILABEL, 2),
-                prefs.getBoolean(K_UICOLOR, true), prefs.getInt(K_UIPOP, 1));
+                prefs.getBoolean(K_UICOLOR, true), prefs.getInt(K_UIPOP, 1),
+                prefs.getInt(K_UIGAP, 24), prefs.getInt(K_UISHADE, 72));
     }
 
     // ---- "Dọn RAM": asks Android to kill the background processes of the other apps ----
@@ -558,6 +561,8 @@ public class MainActivity extends Activity {
         ui.put("label", prefs.getInt(K_UILABEL, 2));
         ui.put("color", prefs.getBoolean(K_UICOLOR, true) ? 1 : 0);
         ui.put("pop", prefs.getInt(K_UIPOP, 1));
+        ui.put("gap", prefs.getInt(K_UIGAP, 24));
+        ui.put("shade", prefs.getInt(K_UISHADE, 72));
         o.put("ui", ui);
         o.put("dockMax", view.dockMax());
         org.json.JSONObject walls = new org.json.JSONObject();
@@ -592,7 +597,8 @@ public class MainActivity extends Activity {
         try {
             org.json.JSONObject o = new org.json.JSONObject(json);
             if (kind.equals("ui")) {
-                saveUi(o.getInt("glass") == 1, o.getInt("size"), o.getInt("label"), o.getInt("color") == 1, o.getInt("pop"));
+                saveUi(o.getInt("glass") == 1, o.getInt("size"), o.getInt("label"), o.getInt("color") == 1, o.getInt("pop"),
+                        o.optInt("gap", prefs.getInt(K_UIGAP, 24)), o.optInt("shade", prefs.getInt(K_UISHADE, 72)));
                 applyUiToView();
                 return;
             }
