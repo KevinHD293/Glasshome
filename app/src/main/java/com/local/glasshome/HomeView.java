@@ -94,7 +94,7 @@ final class HomeView extends View {
     private float labelSp = 22f, nameSp = 52f;
     private final RectF ramRect = new RectF();
     private static final String[] OPT_TITLE = { "Khay kính ở dock", "Cỡ icon ứng dụng", "Tên ứng dụng",
-            "Viền đổi màu theo app", "Phóng to khi chọn", "Tuỳ chỉnh từ điện thoại" };
+            "Viền đổi màu theo app", "Phóng to khi chọn", "Khôi phục giao diện", "Tuỳ chỉnh từ điện thoại" };
     private static final String[][] OPT_VALUES = { { "Tắt", "Bật" }, { "Lớn", "Vừa", "Nhỏ" }, { "Ẩn", "Nhỏ", "Vừa", "Lớn" },
             { "Tắt", "Bật" }, { "Tắt", "Vừa", "Lớn" } };
     private String phoneUrl = "", phonePin = "";
@@ -1438,13 +1438,14 @@ final class HomeView extends View {
         switch (k) {
             case KeyEvent.KEYCODE_DPAD_UP: optIdx = Math.max(0, optIdx - 1); break;
             case KeyEvent.KEYCODE_DPAD_DOWN: optIdx = Math.min(n - 1, optIdx + 1); break;
-            case KeyEvent.KEYCODE_DPAD_LEFT: if (optIdx < n - 1) optCycle(-1); break;
-            case KeyEvent.KEYCODE_DPAD_RIGHT: if (optIdx < n - 1) optCycle(1); break;
+            case KeyEvent.KEYCODE_DPAD_LEFT: if (optIdx < OPT_VALUES.length) optCycle(-1); break;
+            case KeyEvent.KEYCODE_DPAD_RIGHT: if (optIdx < OPT_VALUES.length) optCycle(1); break;
             case KeyEvent.KEYCODE_DPAD_CENTER:
             case KeyEvent.KEYCODE_ENTER:
             case KeyEvent.KEYCODE_NUMPAD_ENTER:
                 if (e.getRepeatCount() == 0) {
                     if (optIdx == n - 1) { optOpen = false; openPhone(); }
+                    else if (optIdx == n - 2) { resetUiDefaults(); }
                     else optCycle(1);
                 }
                 break;
@@ -1452,6 +1453,17 @@ final class HomeView extends View {
         }
         invalidate();
         return true;
+    }
+
+    /** Restores only appearance settings; never touches apps, dock order, wallpaper or debloat. */
+    private void resetUiDefaults() {
+        uiGlass = false;
+        uiSize = 0;
+        uiLabel = 2;
+        uiColor = true;
+        uiPop = 1;
+        applyUi(true);
+        act.sfx.open();
     }
 
     int dockMax() { return cols; }
@@ -1504,8 +1516,8 @@ final class HomeView extends View {
         c.drawRect(0, 0, W, H, p);
 
         int n = OPT_TITLE.length;
-        float w = Math.min(W - 2 * mx, 600 * dp), rowH4 = 50 * dp, titleH = 70 * dp;
-        float h = titleH + n * rowH4 + 18 * dp;
+        float w = Math.min(W - 2 * mx, 640 * dp), rowH4 = 50 * dp, titleH = 85 * dp;
+        float h = titleH + n * rowH4 + 34 * dp;
         float x = (W - w) / 2f, y = (H - h) / 2f, pad = 26 * dp;
         rf.set(x, y, x + w, y + h);
         p.setColor(0xF2222226);
@@ -1520,7 +1532,10 @@ final class HomeView extends View {
         text.setTypeface(light);
         text.setTextSize(26 * dp);
         text.setColor(Color.WHITE);
-        c.drawText("Tuỳ chỉnh giao diện", x + pad, y + 46 * dp, text);
+        c.drawText("Tuỳ chỉnh giao diện", x + pad, y + 38 * dp, text);
+        text.setTextSize(14 * dp);
+        text.setColor(0xAAFFFFFF);
+        c.drawText("← → thay đổi  •  OK chọn  •  Back đóng", x + pad, y + 65 * dp, text);
 
         text.setTypeface(regular);
         text.setTextSize(20 * dp);
@@ -1537,7 +1552,7 @@ final class HomeView extends View {
             text.setColor(Color.WHITE);
             c.drawText(OPT_TITLE[i], x + pad, by, text);
             text.setTextAlign(Paint.Align.RIGHT);
-            if (i < n - 1) {
+            if (i < OPT_VALUES.length) {
                 String v = OPT_VALUES[i][optGet(i)];
                 text.setColor(i == optIdx ? Color.WHITE : 0xB3FFFFFF);
                 c.drawText(i == optIdx ? "‹  " + v + "  ›" : v, x + w - pad, by, text);
@@ -1547,6 +1562,9 @@ final class HomeView extends View {
             }
         }
         text.setTextAlign(Paint.Align.LEFT);
+        text.setTextSize(13 * dp);
+        text.setColor(0x99FFFFFF);
+        c.drawText("Thay đổi được lưu tự động • Không cần cài lại APK", x + pad, y + h - 12 * dp, text);
     }
 
     // ================================================================ widgets and their full screens
