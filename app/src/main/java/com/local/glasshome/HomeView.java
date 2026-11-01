@@ -364,7 +364,7 @@ final class HomeView extends View {
         // the two widgets sit between the header and the big app name, side by side
         float nameCap = uiLabel == 0 ? 0f : 0.72f * nameSp * dp + 8 * dp;
         float wBottom = dockTop - (uiLabel == 0 ? 22 * dp : 36 * dp + nameCap);
-        float headerBottom = 106 * dp + 50 * dp + 14 * dp;
+        float headerBottom = (106 + Math.max(0, uiClockSize - 54)) * dp + 50 * dp + 14 * dp;
         float wTop = Math.max(headerBottom, wBottom - uiWidgetHeight * dp);
         widgetsOn = (uiCalendar || uiWeather) && wBottom - wTop >= 56 * dp;
         if (!widgetsOn && zone == ZW) zone = dock.isEmpty() ? ZT : ZD;
@@ -1146,7 +1146,7 @@ final class HomeView extends View {
         text.setTypeface(light);
         text.setTextSize(uiClockSize * dp);
         text.setColor(Color.WHITE);
-        float base = 106 * dp;
+        float base = (106 + Math.max(0, uiClockSize - 54)) * dp; // lower enlarged clock to preserve greeting clearance
         float cw = drawFlush(c, timeStr, mx, base);   // ink width of the clock
 
         float gap = 24 * dp, bar = 1.5f * dp;          // the same gap on both sides of the divider
