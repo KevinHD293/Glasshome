@@ -73,6 +73,8 @@
     <select id="ui_color"><option value="0">Tắt</option><option value="1">Bật</option></select>
     <label class="lab">Phóng to ô khi chọn</label>
     <select id="ui_pop"><option value="0">Tắt</option><option value="1">Vừa</option><option value="2">Lớn</option></select>
+    <label class="lab">Tốc độ di chuyển vùng chọn</label>
+    <select id="ui_movespeed"><option value="0">Tức thì (0 ms)</option><option value="1">Nhanh (110 ms)</option><option value="2">Cân bằng (180 ms)</option><option value="3">Mềm mại (260 ms)</option></select>
     <label class="lab">Khoảng cách icon dock và lưới (dp)</label>
     <input id="ui_gap" type="range" min="8" max="48" step="4" oninput="$('gap_value').textContent=this.value+' dp'">
     <div id="gap_value" class="note">24 dp</div>
@@ -189,7 +191,7 @@ function render() {
   $('place').textContent = 'Đang dùng: ' + (S.place || '');
   var u = S.ui || {};
   $('ui_glass').value = u.glass || 0; $('ui_size').value = u.size || 0; $('ui_label').value = (u.label === undefined ? 2 : u.label);
-  $('ui_color').value = (u.color === undefined ? 1 : u.color); $('ui_pop').value = (u.pop === undefined ? 1 : u.pop);
+  $('ui_color').value = (u.color === undefined ? 1 : u.color); $('ui_pop').value = (u.pop === undefined ? 1 : u.pop); $('ui_movespeed').value = (u.moveSpeed === undefined ? 1 : u.moveSpeed);
   $('ui_gap').value = (u.gap === undefined ? 24 : u.gap); $('gap_value').textContent = $('ui_gap').value + ' dp';
   $('ui_docklift').value = (u.dockLift === undefined ? 0 : u.dockLift); $('docklift_value').textContent = $('ui_docklift').value + ' dp';
   $('ui_calendar').value = (u.calendar === undefined ? 1 : u.calendar); $('ui_weather').value = (u.weather === undefined ? 1 : u.weather);
@@ -218,7 +220,7 @@ function saveHidden() {
   api('/api/hidden', { hidden: h }).then(function () { toast('Đã lưu danh sách ẩn'); }).catch(fail);
 }
 function saveUi() {
-  api('/api/ui', { glass: +$('ui_glass').value, size: +$('ui_size').value, label: +$('ui_label').value, color: +$('ui_color').value, pop: +$('ui_pop').value, gap: +$('ui_gap').value, shade: +$('ui_shade').value, dockLift: +$('ui_docklift').value, widgetHeight: +$('ui_widgetheight').value, calendar: +$('ui_calendar').value, weather: +$('ui_weather').value, widgetBg: +$('ui_widgetbg').value, headerDate: +$('ui_headerdate').value, headerLunar: +$('ui_headerlunar').value, clockSize: +$('ui_clocksize').value, showRam: +$('ui_showram').value, showStorage: +$('ui_showstorage').value })
+  api('/api/ui', { glass: +$('ui_glass').value, size: +$('ui_size').value, label: +$('ui_label').value, color: +$('ui_color').value, pop: +$('ui_pop').value, moveSpeed: +$('ui_movespeed').value, gap: +$('ui_gap').value, shade: +$('ui_shade').value, dockLift: +$('ui_docklift').value, widgetHeight: +$('ui_widgetheight').value, calendar: +$('ui_calendar').value, weather: +$('ui_weather').value, widgetBg: +$('ui_widgetbg').value, headerDate: +$('ui_headerdate').value, headerLunar: +$('ui_headerlunar').value, clockSize: +$('ui_clocksize').value, showRam: +$('ui_showram').value, showStorage: +$('ui_showstorage').value })
     .then(function () { toast('Đã lưu giao diện'); refresh(); }).catch(fail);
 }
 function refresh() {

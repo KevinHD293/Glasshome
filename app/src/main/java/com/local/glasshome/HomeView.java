@@ -90,13 +90,14 @@ final class HomeView extends View {
 
     // user options (options panel on the TV, or the phone page)
     private boolean uiGlass = false, uiColor = true, colorFollow = true, optOpen = false;
+    private int uiMoveSpeed = 1; // 0=instant, 1=110ms, 2=180ms, 3=260ms
     private int uiSize = 0, uiLabel = 2, uiPop = 1, uiGap = 24, uiShade = 72, uiDockLift = 0, uiWidgetHeight = 92, uiClockSize = 54, optIdx = 0, topRow = 0;
     private boolean uiCalendar = true, uiWeather = true, uiHeaderDate = true, uiHeaderLunar = true, uiWidgetBg = true, uiShowRam = true, uiShowStorage = true;
     private float labelSp = 22f, nameSp = 52f;
     private final RectF ramRect = new RectF();
-    private static final String[] OPT_TITLE = { "── DOCK ──", "Khay kính ở dock", "Cỡ icon ứng dụng", "Khoảng cách icon", "Nâng vị trí dock", "── HIỆU ỨNG ──", "Viền đổi màu theo app", "Phóng to khi chọn", "Độ tối bảng cài đặt", "── CHỮ ──", "Tên ứng dụng", "── WIDGET ──", "Hiện lịch", "Hiện thời tiết", "Chiều cao widget", "Nền widget", "── ĐỒNG HỒ ──", "Hiện ngày tháng", "Hiện lịch âm", "Cỡ đồng hồ", "── THÔNG TIN ──", "Hiện RAM", "Hiện bộ nhớ", "Khôi phục giao diện", "Tuỳ chỉnh từ điện thoại" };
+    private static final String[] OPT_TITLE = { "── DOCK ──", "Khay kính ở dock", "Cỡ icon ứng dụng", "Khoảng cách icon", "Nâng vị trí dock", "── HIỆU ỨNG ──", "Viền đổi màu theo app", "Phóng to khi chọn", "Tốc độ vùng chọn", "Độ tối bảng cài đặt", "── CHỮ ──", "Tên ứng dụng", "── WIDGET ──", "Hiện lịch", "Hiện thời tiết", "Chiều cao widget", "Nền widget", "── ĐỒNG HỒ ──", "Hiện ngày tháng", "Hiện lịch âm", "Cỡ đồng hồ", "── THÔNG TIN ──", "Hiện RAM", "Hiện bộ nhớ", "Khôi phục giao diện", "Tuỳ chỉnh từ điện thoại" };
     private static final String[][] OPT_VALUES = { { "Tắt", "Bật" }, { "Lớn", "Vừa", "Nhỏ" }, { "Ẩn", "Nhỏ", "Vừa", "Lớn" }, { "Tắt", "Bật" }, { "Tắt", "Vừa", "Lớn" } };
-    private static boolean optHeader(int i) { return i == 0 || i == 5 || i == 9 || i == 11 || i == 16 || i == 20; }
+    private static boolean optHeader(int i) { return i == 0 || i == 5 || i == 10 || i == 12 || i == 17 || i == 21; }
     private static int optNext(int i, int direction) {
         int n = OPT_TITLE.length;
         do { i = Math.max(0, Math.min(n - 1, i + direction)); } while (optHeader(i) && i > 0 && i < n - 1);
@@ -430,9 +431,22 @@ final class HomeView extends View {
         invalidate();
     }
 
+    /** Fast, bounded focus motion. Other UI springs keep their original tuning. */
+    private void configureFocusMotion() {
+        // Critically damped springs: settle near the target within the selected duration.
+        float duration = uiMoveSpeed == 1 ? 0.110f : uiMoveSpeed == 2 ? 0.180f : 0.260f;
+        float omega = 6.6f / duration;
+        Spring[] focus = {hx, hy, hw, hh, hr, gx};
+        for (Spring sp : focus) { sp.k = omega * omega; sp.c = 2f * omega; }
+    }
+
     private void focusMoved() {
         pop.v = 1f; pop.vel = 0f; pop.t = popTarget;
         retarget(false);
+        if (uiMoveSpeed == 0) {
+            hx.snap(hx.t); hy.snap(hy.t); hw.snap(hw.t); hh.snap(hh.t); hr.snap(hr.t); gx.snap(gx.t);
+            invalidate();
+        }
     }
 
     // ------------------------------------------------------------------ keys
@@ -1416,17 +1430,18 @@ final class HomeView extends View {
             case 4: return uiDockLift + " dp";
             case 6: return OPT_VALUES[3][uiColor ? 1 : 0];
             case 7: return OPT_VALUES[4][uiPop];
-            case 8: return uiShade + "%";
-            case 10: return OPT_VALUES[2][uiLabel];
-            case 12: return uiCalendar ? "Bật" : "Tắt";
-            case 13: return uiWeather ? "Bật" : "Tắt";
-            case 14: return uiWidgetHeight + " dp";
-            case 15: return uiWidgetBg ? "Bật" : "Tắt";
-            case 17: return uiHeaderDate ? "Bật" : "Tắt";
-            case 18: return uiHeaderLunar ? "Bật" : "Tắt";
-            case 19: return uiClockSize + " dp";
-            case 21: return uiShowRam ? "Bật" : "Tắt";
-            case 22: return uiShowStorage ? "Bật" : "Tắt";
+            case 8: return new String[]{"Tức thì (0 ms)", "Nhanh (110 ms)", "Cân bằng (180 ms)", "Mềm mại (260 ms)"}[uiMoveSpeed];
+            case 9: return uiShade + "%";
+            case 11: return OPT_VALUES[2][uiLabel];
+            case 13: return uiCalendar ? "Bật" : "Tắt";
+            case 14: return uiWeather ? "Bật" : "Tắt";
+            case 15: return uiWidgetHeight + " dp";
+            case 16: return uiWidgetBg ? "Bật" : "Tắt";
+            case 18: return uiHeaderDate ? "Bật" : "Tắt";
+            case 19: return uiHeaderLunar ? "Bật" : "Tắt";
+            case 20: return uiClockSize + " dp";
+            case 22: return uiShowRam ? "Bật" : "Tắt";
+            case 23: return uiShowStorage ? "Bật" : "Tắt";
             default: return "›";
         }
     }
@@ -1439,17 +1454,18 @@ final class HomeView extends View {
             case 4: uiDockLift = Math.max(0, Math.min(48, uiDockLift + d * 8)); break;
             case 6: uiColor = !uiColor; break;
             case 7: uiPop = (uiPop + d + 3) % 3; break;
-            case 8: uiShade = Math.max(40, Math.min(95, uiShade + d * 5)); break;
-            case 10: uiLabel = (uiLabel + d + 4) % 4; break;
-            case 12: uiCalendar = !uiCalendar; break;
-            case 13: uiWeather = !uiWeather; break;
-            case 14: uiWidgetHeight = Math.max(64, Math.min(176, uiWidgetHeight + d * 8)); break;
-            case 15: uiWidgetBg = !uiWidgetBg; break;
-            case 17: uiHeaderDate = !uiHeaderDate; break;
-            case 18: uiHeaderLunar = !uiHeaderLunar; break;
-            case 19: uiClockSize = Math.max(40, Math.min(80, uiClockSize + d * 2)); break;
-            case 21: uiShowRam = !uiShowRam; break;
-            case 22: uiShowStorage = !uiShowStorage; break;
+            case 8: uiMoveSpeed = (uiMoveSpeed + d + 4) % 4; break;
+            case 9: uiShade = Math.max(40, Math.min(95, uiShade + d * 5)); break;
+            case 11: uiLabel = (uiLabel + d + 4) % 4; break;
+            case 13: uiCalendar = !uiCalendar; break;
+            case 14: uiWeather = !uiWeather; break;
+            case 15: uiWidgetHeight = Math.max(64, Math.min(176, uiWidgetHeight + d * 8)); break;
+            case 16: uiWidgetBg = !uiWidgetBg; break;
+            case 18: uiHeaderDate = !uiHeaderDate; break;
+            case 19: uiHeaderLunar = !uiHeaderLunar; break;
+            case 20: uiClockSize = Math.max(40, Math.min(80, uiClockSize + d * 2)); break;
+            case 22: uiShowRam = !uiShowRam; break;
+            case 23: uiShowStorage = !uiShowStorage; break;
             default: return;
         }
         applyUi(true);
@@ -1473,8 +1489,8 @@ final class HomeView extends View {
             case KeyEvent.KEYCODE_ENTER:
             case KeyEvent.KEYCODE_NUMPAD_ENTER:
                 if (e.getRepeatCount() == 0) {
-                    if (optIdx == 24) { optOpen = false; openPhone(); }
-                    else if (optIdx == 23) resetUiDefaults();
+                    if (optIdx == 25) { optOpen = false; openPhone(); }
+                    else if (optIdx == 24) resetUiDefaults();
                     else optCycle(1);
                 }
                 break;
@@ -1491,6 +1507,7 @@ final class HomeView extends View {
         uiLabel = 2;
         uiColor = true;
         uiPop = 1;
+        uiMoveSpeed = 1;
         uiGap = 24;
         uiDockLift = 0;
         uiShade = 72;
@@ -1522,19 +1539,21 @@ final class HomeView extends View {
         if (cols != oldCols) rebalanceDock(persist);
         labelSp = uiLabel == 1 ? 16f : uiLabel == 3 ? 28f : 22f;
         nameSp = uiLabel == 1 ? 34f : uiLabel == 3 ? 68f : 52f;
+        configureFocusMotion();
         popTarget = uiPop == 0 ? 1f : uiPop == 2 ? 1.15f : 1.07f;
         colorFollow = uiColor;
         pop.t = popTarget;
         relayout();
         retarget(false);
-        if (persist) act.saveUi(uiGlass, uiSize, uiLabel, uiColor, uiPop, uiGap, uiShade, uiDockLift, uiWidgetHeight, uiCalendar, uiWeather, uiHeaderDate, uiHeaderLunar, uiClockSize, uiWidgetBg, uiShowRam, uiShowStorage);
+        if (persist) act.saveUi(uiGlass, uiSize, uiLabel, uiColor, uiPop, uiGap, uiShade, uiDockLift, uiWidgetHeight, uiCalendar, uiWeather, uiHeaderDate, uiHeaderLunar, uiClockSize, uiWidgetBg, uiShowRam, uiShowStorage, uiMoveSpeed);
         invalidate();
     }
 
     /** Called by the activity with the saved options. */
-    void setUi(boolean glass, int size, int label, boolean color, int popMode, int gap, int shade, int dockLift, int widgetHeight, boolean calendar, boolean weather, boolean headerDate, boolean headerLunar, int clockSize, boolean widgetBg, boolean showRam, boolean showStorage) {
+    void setUi(boolean glass, int size, int label, boolean color, int popMode, int gap, int shade, int dockLift, int widgetHeight, boolean calendar, boolean weather, boolean headerDate, boolean headerLunar, int clockSize, boolean widgetBg, boolean showRam, boolean showStorage, int moveSpeed) {
         uiWidgetHeight = Math.max(64, Math.min(176, widgetHeight));
         uiCalendar = calendar; uiWeather = weather; uiHeaderDate = headerDate; uiHeaderLunar = headerLunar; uiClockSize = Math.max(40, Math.min(80, clockSize)); uiWidgetBg = widgetBg; uiShowRam = showRam; uiShowStorage = showStorage;
+        uiMoveSpeed = Math.max(0, Math.min(3, moveSpeed));
         uiGlass = glass;
         uiSize = Math.max(0, Math.min(2, size));
         uiLabel = Math.max(0, Math.min(3, label));
