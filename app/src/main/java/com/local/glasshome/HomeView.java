@@ -90,7 +90,8 @@ final class HomeView extends View {
 
     // user options (options panel on the TV, or the phone page)
     private boolean uiGlass = false, uiColor = true, colorFollow = true, optOpen = false;
-    private int uiSize = 0, uiLabel = 2, uiPop = 1, uiGap = 24, uiShade = 72, uiDockLift = 0, uiWidgetHeight = 92, uiCalendar = true, uiWeather = true, optIdx = 0, topRow = 0;
+    private int uiSize = 0, uiLabel = 2, uiPop = 1, uiGap = 24, uiShade = 72, uiDockLift = 0, uiWidgetHeight = 92, optIdx = 0, topRow = 0;
+    private boolean uiCalendar = true, uiWeather = true;
     private float labelSp = 22f, nameSp = 52f;
     private final RectF ramRect = new RectF();
     private static final String[] OPT_TITLE = { "── DOCK ──", "Khay kính ở dock", "Cỡ icon ứng dụng", "Khoảng cách icon", "Nâng vị trí dock", "── HIỆU ỨNG ──", "Viền đổi màu theo app", "Phóng to khi chọn", "Độ tối bảng cài đặt", "── CHỮ ──", "Tên ứng dụng", "── WIDGET ──", "Hiện lịch", "Hiện thời tiết", "Chiều cao widget", "Khôi phục giao diện", "Tuỳ chỉnh từ điện thoại" };
