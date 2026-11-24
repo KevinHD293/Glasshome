@@ -4,13 +4,13 @@ import android.app.ActivityManager;
 import android.content.Context;
 import android.graphics.Bitmap;
 import android.graphics.BitmapFactory;
+import android.graphics.BitmapShader;
 import android.graphics.Canvas;
 import android.graphics.Color;
 import android.graphics.LinearGradient;
 import android.graphics.Matrix;
 import android.graphics.Paint;
 import android.graphics.Path;
-import android.graphics.RadialGradient;
 import android.graphics.Rect;
 import android.graphics.RectF;
 import android.graphics.Shader;
@@ -20,6 +20,7 @@ import android.os.Environment;
 import android.os.StatFs;
 import android.text.TextPaint;
 import android.text.TextUtils;
+import android.util.LruCache;
 import android.view.KeyEvent;
 import android.view.View;
 
@@ -86,18 +87,19 @@ final class HomeView extends View {
     private final RectF cardA = new RectF(), cardB = new RectF(), cardC = new RectF();
     private Lunar.Info todayInfo = new Lunar.Info();
     private int calY, calM, calD, calTY, calTM, calTD, calMonthKey = -1;
+    private int calGridOff, calGridDays, calSelDow;   // cached so the detail screen needs no Calendar per frame
     private final Lunar.Info[] calInfo = new Lunar.Info[32];
 
     // user options (options panel on the TV, or the phone page)
-    private boolean uiGlass = false, uiColor = true, colorFollow = true, optOpen = false;
+    private boolean uiGlass = false, uiColor = true, colorFollow = true, optOpen = false, uiFrost = true;
     private int uiMoveSpeed = 1; // 0=instant, 1=110ms, 2=180ms, 3=260ms
     private int uiSize = 0, uiLabel = 2, uiPop = 1, uiGap = 24, uiShade = 72, uiDockLift = 0, uiWidgetHeight = 92, uiClockSize = 54, optIdx = 0, topRow = 0;
     private boolean uiCalendar = true, uiWeather = true, uiHeaderDate = true, uiHeaderLunar = true, uiWidgetBg = true, uiShowRam = true, uiShowStorage = true;
     private float labelSp = 22f, nameSp = 52f;
     private final RectF ramRect = new RectF();
-    private static final String[] OPT_TITLE = { "── DOCK ──", "Khay kính ở dock", "Cỡ icon ứng dụng", "Khoảng cách icon", "Nâng vị trí dock", "── HIỆU ỨNG ──", "Viền đổi màu theo app", "Phóng to khi chọn", "Tốc độ vùng chọn", "Độ tối bảng cài đặt", "── CHỮ ──", "Tên ứng dụng", "── WIDGET ──", "Hiện lịch", "Hiện thời tiết", "Chiều cao widget", "Nền widget", "── ĐỒNG HỒ ──", "Hiện ngày tháng", "Hiện lịch âm", "Cỡ đồng hồ", "── THÔNG TIN ──", "Hiện RAM", "Hiện bộ nhớ", "Khôi phục giao diện", "Tuỳ chỉnh từ điện thoại" };
+    private static final String[] OPT_TITLE = { "── DOCK ──", "Khay kính ở dock", "Cỡ icon ứng dụng", "Khoảng cách icon", "Nâng vị trí dock", "── HIỆU ỨNG ──", "Viền đổi màu theo app", "Phóng to khi chọn", "Tốc độ vùng chọn", "Độ tối bảng cài đặt", "── CHỮ ──", "Tên ứng dụng", "── WIDGET ──", "Hiện lịch", "Hiện thời tiết", "Chiều cao widget", "Nền widget", "── ĐỒNG HỒ ──", "Hiện ngày tháng", "Hiện lịch âm", "Cỡ đồng hồ", "── THÔNG TIN ──", "Hiện RAM", "Hiện bộ nhớ", "Khôi phục giao diện", "Tuỳ chỉnh từ điện thoại", "── KÍNH ──", "Nền kính mờ (blur)" };
     private static final String[][] OPT_VALUES = { { "Tắt", "Bật" }, { "Lớn", "Vừa", "Nhỏ" }, { "Ẩn", "Nhỏ", "Vừa", "Lớn" }, { "Tắt", "Bật" }, { "Tắt", "Vừa", "Lớn" } };
-    private static boolean optHeader(int i) { return i == 0 || i == 5 || i == 10 || i == 12 || i == 17 || i == 21; }
+    private static boolean optHeader(int i) { return i == 0 || i == 5 || i == 10 || i == 12 || i == 17 || i == 21 || i == 26; }
     private static int optNext(int i, int direction) {
         int n = OPT_TITLE.length;
         do { i = Math.max(0, Math.min(n - 1, i + direction)); } while (optHeader(i) && i > 0 && i < n - 1);
@@ -120,13 +122,20 @@ final class HomeView extends View {
 
     private final Paint p = new Paint(Paint.ANTI_ALIAS_FLAG);
     private final TextPaint text = new TextPaint(Paint.ANTI_ALIAS_FLAG);
-    private final Paint glowPaint = new Paint(Paint.ANTI_ALIAS_FLAG);
+    private int glowCur = 0xFF8E8E93, glowTgt = 0xFF8E8E93;
     private final Paint wallPaint = new Paint(Paint.FILTER_BITMAP_FLAG);
-    private final Path path = new Path(), path2 = new Path();
+    private final Path path = new Path();
     private final RectF rf = new RectF(), tmp = new RectF();
     private Typeface light, regular;
     private Bitmap wall, wallNext;               // current wallpaper and the one fading in
     private Bitmap barBlur, barBlurNext;         // blurred copies of them behind the top bar
+    private Bitmap wallBlur, wallBlurNext;       // full-screen blurred copies for glass backdrops
+    private float drawScrollY;                   // scroll offset of the canvas transform (0 outside the scrolled layer)
+    private final RectF screenR = new RectF();
+    private final Paint frostPaint = new Paint(Paint.ANTI_ALIAS_FLAG | Paint.FILTER_BITMAP_FLAG);
+    private final Matrix blurM = new Matrix();
+    private Bitmap shBmp1, shBmp2;
+    private BitmapShader sh1, sh2;
     private boolean wallOn = true;
     private long fadeStart = 0;
     private float wallFade = 1f;
@@ -157,8 +166,35 @@ final class HomeView extends View {
     private final RectF[] pill = { new RectF(), new RectF(), new RectF(), new RectF(), new RectF() };
     private final String[] pillText = { "Inputs", "Cast", "Sắp xếp", "Wi-Fi", "Settings" };
 
-    private int glowCur = 0xFF8E8E93, glowTgt = 0xFF8E8E93, shaderColor = 0;
-    private RadialGradient glowShader;
+    // tile bitmaps: each app tile is rendered once into a bitmap, then blitted per frame
+    private final LruCache<String, Bitmap> tiles = new LruCache<String, Bitmap>(32768) {
+        @Override protected int sizeOf(String key, Bitmap value) { return value.getByteCount() / 1024; }
+        @Override protected void entryRemoved(boolean evicted, String key, Bitmap oldValue, Bitmap newValue) {
+            if (oldValue != null && oldValue != newValue) oldValue.recycle();
+        }
+    };
+    private static final float TILE_SCALE = 0.75f;   // tiles are rasterised below screen res: softer but ~44% less texture memory
+    private int tileBmpW, tileBmpH;
+    private Bitmap moonBmp;
+    private final RectF dstF = new RectF();
+    private final Paint bmpPaint = new Paint(Paint.FILTER_BITMAP_FLAG);
+    private final Paint.FontMetrics textFm = new Paint.FontMetrics();
+    private CharSequence nameShown;
+    private String nameShownKey = "";
+
+    // widget text, rebuilt once per minute / weather / place change instead of per frame
+    private String calDayStr = "", calLine1 = "", calLine2 = "", calLine3h = "", calPre = "", calSuf = "";
+    private String weaTemp = "", weaLine1 = "", weaLine2 = "", weaLine3 = "";
+
+    private static final String[] MOVE_OPTS = { "Tức thì (0 ms)", "Nhanh (110 ms)", "Cân bằng (180 ms)", "Mềm mại (260 ms)" };
+    private static final String[] DAY_NUM = new String[32];
+    static { for (int i = 0; i < DAY_NUM.length; i++) DAY_NUM[i] = String.valueOf(i); }
+    private static final SimpleDateFormat HHMM = new SimpleDateFormat("HH:mm", Locale.getDefault());
+    private static final String[] WEATHER_LAB = { "Cảm giác như", "Độ ẩm", "Gió", "Khả năng mưa", "Chỉ số UV", "Mặt trời mọc / lặn" };
+
+    // weather-detail 7-day temperature gradients, rebuilt only when the weather data changes
+    private Weather gradW;
+    private final LinearGradient[] dayGrads = new LinearGradient[7];
 
     private long lastNs = 0, minuteKey = -1;
     private String timeStr = "", dateStr = "", greetStr = "", lunarStr = "";
@@ -229,6 +265,7 @@ final class HomeView extends View {
             grid.addAll(ordered);
         }
         menuOpen = false; castOpen = false; held = null; arrange = false; tempArrange = false; pillText[P_ARR] = "Sắp xếp";
+        tiles.evictAll();   // new drawables: the cached tile bitmaps are stale
 
         // restore focus
         zone = ZD; dockIdx = 0; gridIdx = 0;
@@ -284,7 +321,15 @@ final class HomeView extends View {
         retarget(false);
     }
 
-    void setWeather(Weather w) { weather = w; invalidate(); }
+    /** Frosted-glass backdrop toggle (options panel). Off = panels keep only the flat tint, cheaper on weak GPUs. */
+    void setFrost(boolean on) {
+        if (uiFrost == on) return;
+        uiFrost = on;
+        rebuildBlurs();
+        invalidate();
+    }
+
+    void setWeather(Weather w) { weather = w; refreshWidgetText(); invalidate(); }
 
     void setWallpaper(boolean on) {
         if (wallOn == on) return;
@@ -295,7 +340,7 @@ final class HomeView extends View {
 
     boolean hasWallpaper() { return wall != null || wallNext != null; }
 
-    void setPlace(String name) { place = name == null ? "" : name; invalidate(); }
+    void setPlace(String name) { place = name == null ? "" : name; refreshWidgetText(); invalidate(); }
 
     void tick() { refreshMemory(); invalidate(); }
 
@@ -335,12 +380,15 @@ final class HomeView extends View {
         if (getWidth() == 0) return;
         W = getWidth();
         H = getHeight();
+        screenR.set(0, 0, W, H);
         mx = 64 * dp;
         padD = 24 * dp;
         gapD = uiGap * dp;
         // dock and grid share one tile size and the same four columns, edge to edge between the margins
         tileW = (W - 2 * mx - (cols - 1) * gapD) / cols;
         tileH = tileW * 9f / 16f;
+        int nw = Math.max(1, (int) (tileW * TILE_SCALE + 0.5f)), nh = Math.max(1, (int) (tileH * TILE_SCALE + 0.5f));
+        if (nw != tileBmpW || nh != tileBmpH) { tileBmpW = nw; tileBmpH = nh; tiles.evictAll(); }
         cellW = tileW + gapD;
         slotW = tileW;
         slotH = tileH;
@@ -684,7 +732,7 @@ final class HomeView extends View {
 
         text.setTypeface(regular);
         text.setTextSize(22 * dp);
-        Paint.FontMetrics fm = text.getFontMetrics();
+        text.getFontMetrics(textFm);
         for (int i = 0; i < menuIds.size(); i++) {
             float top = y + titleH + i * rowH3;
             int id = menuIds.get(i);
@@ -694,7 +742,7 @@ final class HomeView extends View {
                 c.drawRoundRect(tmp, 18 * dp, 18 * dp, p);
             }
             text.setColor(id == M_NOTE ? 0x88FFFFFF : id == M_DEL ? 0xFFFF6B6B : Color.WHITE);
-            c.drawText(menuLabels.get(i), x + 28 * dp, top + rowH3 / 2f - (fm.ascent + fm.descent) / 2f, text);
+            c.drawText(menuLabels.get(i), x + 28 * dp, top + rowH3 / 2f - (textFm.ascent + textFm.descent) / 2f, text);
         }
     }
 
@@ -829,9 +877,9 @@ final class HomeView extends View {
         p.setStyle(Paint.Style.FILL);
         p.setColor(0xEE2A2A2E);
         c.drawRoundRect(rf, 16 * dp, 16 * dp, p);
-        Paint.FontMetrics fm = text.getFontMetrics();
+        text.getFontMetrics(textFm);
         text.setColor(Color.WHITE);
-        c.drawText(s, 0, s.length(), mx + 14 * dp, rf.centerY() - (fm.ascent + fm.descent) / 2f, text);
+        c.drawText(s, 0, s.length(), mx + 14 * dp, rf.centerY() - (textFm.ascent + textFm.descent) / 2f, text);
     }
 
     // ------------------------------------------------------------------ draw
@@ -870,9 +918,9 @@ final class HomeView extends View {
 
         c.save();
         c.translate(0, -scroll.v);
+        drawScrollY = scroll.v;
 
         drawHeader(c);
-        drawGlow(c);
 
         if (uiGlass && !dock.isEmpty()) {   // optional glass dock
             rf.set(mx - padD, dockTop, mx + (dock.size() - 1) * cellW + tileW + padD, dockTop + bandH);
@@ -893,7 +941,7 @@ final class HomeView extends View {
             p.setColor(0x26FFFFFF);               // frost tint
             c.drawRoundRect(rf, bandRad, bandRad, p);
         }
-        glass(c, rf, bandRad, 0x1E, false);
+        glass(c, rf, bandRad, 0x1E, false, false);   // the band already has its own stronger blur
         glass(c, ramRect, ramRect.height() / 2f, 0x26, false);   // the "Dọn RAM" button
 
         // the single glass highlight
@@ -933,6 +981,7 @@ final class HomeView extends View {
         if (ddOpen) drawDropdown(c);
 
         c.restore();
+        drawScrollY = 0;
         drawHint(c);
         drawMenu(c);
         drawCast(c);
@@ -980,15 +1029,18 @@ final class HomeView extends View {
     }
 
     private void finishFade() {
-        Bitmap oldWall = wall, oldBlur = barBlur;
+        Bitmap oldWall = wall, oldBlur = barBlur, oldFull = wallBlur;
         wall = wallNext;
         barBlur = barBlurNext;
+        wallBlur = wallBlurNext;
         wallNext = null;
         barBlurNext = null;
+        wallBlurNext = null;
         wallFade = 1f;
         fading = false;
         if (oldWall != wall) recycleLater(oldWall);
         recycleLater(oldBlur);
+        recycleLater(oldFull);
     }
 
     private void recycleLater(final Bitmap b) {   // wait a moment: the last frame may still be using it
@@ -1028,16 +1080,40 @@ final class HomeView extends View {
         }
     }
 
+    /** A screen-sized, heavily downscaled copy of the wallpaper: stretched back up it reads as a soft blur. */
+    private Bitmap blurFull(Bitmap src) {
+        if (src == null || W == 0) return null;
+        try {
+            wallSource(src, screenR, tmpSrc);
+            tmpSrc.intersect(0, 0, src.getWidth(), src.getHeight());
+            if (tmpSrc.width() < 8 || tmpSrc.height() < 8) return null;
+            Bitmap crop = Bitmap.createBitmap(src, tmpSrc.left, tmpSrc.top, tmpSrc.width(), tmpSrc.height());
+            Bitmap small = Bitmap.createScaledBitmap(crop, Math.max(2, (int) (W / 10)), Math.max(2, (int) (H / 10)), true);
+            if (crop != src && crop != small) crop.recycle();
+            return small;
+        } catch (Throwable t) {
+            return null;
+        }
+    }
+
     private void rebuildBlurs() {
-        Bitmap o1 = barBlur, o2 = barBlurNext;
+        Bitmap o1 = barBlur, o2 = barBlurNext, o3 = wallBlur, o4 = wallBlurNext;
         barBlur = null;
         barBlurNext = null;
+        wallBlur = null;
+        wallBlurNext = null;
         if (wallOn && W != 0) {
             barBlur = blurOf(wall);
             barBlurNext = blurOf(wallNext);
+            if (uiFrost) {
+                wallBlur = blurFull(wall);
+                wallBlurNext = blurFull(wallNext);
+            }
         }
         recycleLater(o1);
         recycleLater(o2);
+        recycleLater(o3);
+        recycleLater(o4);
     }
 
     /** Loads a wallpaper off the UI thread, then fades it in. token: "asset:path" or "file:/path". */
@@ -1052,6 +1128,7 @@ final class HomeView extends View {
                         if (wallNext != null) finishFade();   // a fade was still running: finish it first
                         wallNext = cap(bm);
                         barBlurNext = blurOf(wallNext);
+                        wallBlurNext = blurFull(wallNext);
                         fadeStart = System.nanoTime();
                         invalidate();
                     }
@@ -1123,6 +1200,26 @@ final class HomeView extends View {
                 .toUpperCase(Locale.getDefault());
         greetStr = h < 5 ? "CHÀO BUỔI TỐI" : h < 11 ? "CHÀO BUỔI SÁNG" : h < 13 ? "CHÀO BUỔI TRƯA"
                 : h < 18 ? "CHÀO BUỔI CHIỀU" : "CHÀO BUỔI TỐI";
+        refreshWidgetText();
+    }
+
+    /** Pre-builds the calendar/weather widget strings so onDraw never concatenates or hits Calendar per frame. */
+    private void refreshWidgetText() {
+        Calendar cal = Calendar.getInstance();
+        calLine1 = WEEKDAY_LONG[cal.get(Calendar.DAY_OF_WEEK) - 1] + " · Tháng " + (cal.get(Calendar.MONTH) + 1)
+                + ", " + cal.get(Calendar.YEAR);
+        calDayStr = String.valueOf(cal.get(Calendar.DAY_OF_MONTH));
+        Lunar.Info t = todayInfo;
+        calLine2 = t.day + " tháng " + t.monthWord + " · Năm " + t.yearCanChi;
+        calLine3h = t.holiday;
+        calPre = "Ngày " + t.dayCanChi + " · ";
+        calSuf = t.star + (t.good ? " (hoàng đạo)" : " (hắc đạo)");
+        Weather w = weather;
+        if (w == null) { weaTemp = weaLine1 = weaLine2 = weaLine3 = ""; return; }
+        weaTemp = Math.round(w.temp) + "°";
+        weaLine1 = w.text() + (place.length() > 0 ? " · " + place : "");
+        weaLine2 = "Cao " + Math.round(w.hi) + "° · Thấp " + Math.round(w.lo) + "°";
+        weaLine3 = "Mưa " + w.rainMax + "% · Độ ẩm " + w.humidity + "%";
     }
 
     /** Draws text so that the ink of its first glyph starts exactly at x (cancels the font's left side bearing),
@@ -1277,20 +1374,68 @@ final class HomeView extends View {
     }
 
     private void moon(Canvas c, float cx, float cy, float r) {
-        path.reset();
-        path.addCircle(cx, cy, r, Path.Direction.CW);
-        path2.reset();
-        path2.addCircle(cx + 0.5f * r, cy - 0.35f * r, 0.85f * r, Path.Direction.CW);
-        path.op(path2, Path.Op.DIFFERENCE);
-        p.setStyle(Paint.Style.FILL);
-        p.setColor(0xFFE8EAF6);
-        c.drawPath(path, p);
+        if (moonBmp == null) moonBmp = makeMoon();
+        dstF.set(cx - r, cy - r, cx + r, cy + r);
+        c.drawBitmap(moonBmp, null, dstF, bmpPaint);
+    }
+
+    /** The crescent is a boolean path op (expensive), so it is rasterised once and scaled per draw. */
+    private static Bitmap makeMoon() {
+        int s = 128;
+        Bitmap b = Bitmap.createBitmap(s, s, Bitmap.Config.ARGB_8888);
+        Canvas cv = new Canvas(b);
+        float cx = s / 2f, cy = s / 2f, r = s / 2f;
+        Path outer = new Path(), inner = new Path();
+        outer.addCircle(cx, cy, r, Path.Direction.CW);
+        inner.addCircle(cx + 0.5f * r, cy - 0.35f * r, 0.85f * r, Path.Direction.CW);
+        outer.op(inner, Path.Op.DIFFERENCE);
+        Paint mp = new Paint(Paint.ANTI_ALIAS_FLAG);
+        mp.setStyle(Paint.Style.FILL);
+        mp.setColor(0xFFE8EAF6);
+        cv.drawPath(outer, mp);
+        return b;
     }
 
     // ------------------------------------------------- liquid glass + background
 
-    /** Glass panel: smooth vertical sheen (no hard seam), bright top rim fading downwards, optional glint. */
+    /** Draws the blurred wallpaper inside a rounded glass panel via a BitmapShader: fractional
+     *  coordinates stay smooth while the layer scrolls (no integer-src jitter), and the round
+     *  rect itself is the clip so no clipPath is needed. */
+    private void drawBackdrop(Canvas c, RectF r, float rad) {
+        Bitmap b1 = wallBlur, b2 = wallBlurNext;
+        if (!uiFrost || !wallOn || (b1 == null && b2 == null) || W == 0) return;
+        Bitmap ref = b1 != null ? b1 : b2;
+        float kx = ref.getWidth() / (float) W, ky = ref.getHeight() / (float) H;
+        // Desired sample coords: blurPx = ((local - scroll) * k). Shader.setLocalMatrix takes the
+        // FORWARD matrix (shader space -> local), which Skia inverts when sampling, so we feed
+        // the inverse: scale by 1/k then shift y by scroll*ky (postTranslate = M*T).
+        blurM.setScale(1f / kx, 1f / ky);
+        blurM.postTranslate(0, drawScrollY * ky);
+        if (b1 != null) { frostPaint.setShader(shaderOf(b1)); c.drawRoundRect(r, rad, rad, frostPaint); }
+        if (b2 != null) { frostPaint.setShader(shaderOf(b2)); frostPaint.setAlpha((int) (255 * wallFade)); c.drawRoundRect(r, rad, rad, frostPaint); }
+        frostPaint.setShader(null);
+        frostPaint.setAlpha(255);
+    }
+
+    private BitmapShader shaderOf(Bitmap b) {
+        BitmapShader s;
+        if (b == shBmp1 && sh1 != null) s = sh1;
+        else if (b == shBmp2 && sh2 != null) s = sh2;
+        else {
+            s = new BitmapShader(b, Shader.TileMode.CLAMP, Shader.TileMode.CLAMP);
+            sh2 = sh1; shBmp2 = shBmp1; sh1 = s; shBmp1 = b;
+        }
+        s.setLocalMatrix(blurM);
+        return s;
+    }
+
+    /** Glass panel: blurred wallpaper behind, smooth vertical sheen (no hard seam), bright top rim, optional glint. */
     private void glass(Canvas c, RectF r, float rad, int a, boolean glint) {
+        glass(c, r, rad, a, glint, true);
+    }
+
+    private void glass(Canvas c, RectF r, float rad, int a, boolean glint, boolean backdrop) {
+        if (backdrop) drawBackdrop(c, r, rad);
         gm.setScale(1f, Math.max(1f, r.height()));
         gm.postTranslate(0f, r.top);
         bodyShader.setLocalMatrix(gm);
@@ -1339,8 +1484,8 @@ final class HomeView extends View {
         text.setLetterSpacing(0f);
         text.setTextAlign(Paint.Align.LEFT);
         text.setColor(Color.WHITE);
-        Paint.FontMetrics rfm = text.getFontMetrics();
-        c.drawText("Dọn RAM", ramRect.left + 16 * dp + 22 * dp + 8 * dp, ramRect.centerY() - (rfm.ascent + rfm.descent) / 2f, text);
+        text.getFontMetrics(textFm);
+        c.drawText("Dọn RAM", ramRect.left + 16 * dp + 22 * dp + 8 * dp, ramRect.centerY() - (textFm.ascent + textFm.descent) / 2f, text);
         p.setStyle(Paint.Style.FILL);
         p.setStrokeCap(Paint.Cap.BUTT);
         p.setStrokeJoin(Paint.Join.MITER);
@@ -1430,7 +1575,7 @@ final class HomeView extends View {
             case 4: return uiDockLift + " dp";
             case 6: return OPT_VALUES[3][uiColor ? 1 : 0];
             case 7: return OPT_VALUES[4][uiPop];
-            case 8: return new String[]{"Tức thì (0 ms)", "Nhanh (110 ms)", "Cân bằng (180 ms)", "Mềm mại (260 ms)"}[uiMoveSpeed];
+            case 8: return MOVE_OPTS[uiMoveSpeed];
             case 9: return uiShade + "%";
             case 11: return OPT_VALUES[2][uiLabel];
             case 13: return uiCalendar ? "Bật" : "Tắt";
@@ -1442,6 +1587,7 @@ final class HomeView extends View {
             case 20: return uiClockSize + " dp";
             case 22: return uiShowRam ? "Bật" : "Tắt";
             case 23: return uiShowStorage ? "Bật" : "Tắt";
+            case 27: return uiFrost ? "Bật" : "Tắt";
             default: return "›";
         }
     }
@@ -1466,6 +1612,7 @@ final class HomeView extends View {
             case 20: uiClockSize = Math.max(40, Math.min(80, uiClockSize + d * 2)); break;
             case 22: uiShowRam = !uiShowRam; break;
             case 23: uiShowStorage = !uiShowStorage; break;
+            case 27: uiFrost = !uiFrost; break;
             default: return;
         }
         applyUi(true);
@@ -1511,7 +1658,7 @@ final class HomeView extends View {
         uiGap = 24;
         uiDockLift = 0;
         uiShade = 72;
-        uiWidgetHeight = 92; uiCalendar = true; uiWeather = true; uiHeaderDate = true; uiHeaderLunar = true; uiWidgetBg = true; uiShowRam = true; uiShowStorage = true; uiClockSize = 54;
+        uiWidgetHeight = 92; uiCalendar = true; uiWeather = true; uiHeaderDate = true; uiHeaderLunar = true; uiWidgetBg = true; uiShowRam = true; uiShowStorage = true; uiClockSize = 54; uiFrost = true;
         applyUi(true);
         act.sfx.open();
     }
@@ -1545,7 +1692,7 @@ final class HomeView extends View {
         pop.t = popTarget;
         relayout();
         retarget(false);
-        if (persist) act.saveUi(uiGlass, uiSize, uiLabel, uiColor, uiPop, uiGap, uiShade, uiDockLift, uiWidgetHeight, uiCalendar, uiWeather, uiHeaderDate, uiHeaderLunar, uiClockSize, uiWidgetBg, uiShowRam, uiShowStorage, uiMoveSpeed);
+        if (persist) { act.saveUi(uiGlass, uiSize, uiLabel, uiColor, uiPop, uiGap, uiShade, uiDockLift, uiWidgetHeight, uiCalendar, uiWeather, uiHeaderDate, uiHeaderLunar, uiClockSize, uiWidgetBg, uiShowRam, uiShowStorage, uiMoveSpeed); act.saveFrost(uiFrost); }
         invalidate();
     }
 
@@ -1595,14 +1742,13 @@ final class HomeView extends View {
         text.setTextSize(13 * dp);
         text.setColor(0xCCFFFFFF);
         c.drawText("↑ ↓ chọn  •  ← → chỉnh  •  OK xác nhận  •  Back đóng", x + pad, y + 58 * dp, text);
-        Paint.FontMetrics fm;
         for (int i = start; i < start + visible; i++) {
             float top = y + titleH + (i - start) * rowH4;
             boolean header = optHeader(i);
             text.setTypeface(header ? regular : regular);
             text.setTextSize((header ? 13 : 18) * dp);
-            fm = text.getFontMetrics();
-            float by = top + rowH4 / 2f - (fm.ascent + fm.descent) / 2f;
+            text.getFontMetrics(textFm);
+            float by = top + rowH4 / 2f - (textFm.ascent + textFm.descent) / 2f;
             if (i == optIdx) {
                 tmp.set(x + 10 * dp, top + 2 * dp, x + w - 10 * dp, top + rowH4 - 2 * dp);
                 p.setColor(0x55FFFFFF);
@@ -1631,7 +1777,7 @@ final class HomeView extends View {
     private static final int GREEN = 0xFF8BE28B, PINK = 0xFFF48FB1, ORANGE = 0xFFFFC266, RAINBLUE = 0xFF7FB6FF;
 
     private String clockOf(long t) {
-        return new SimpleDateFormat("HH:mm", Locale.getDefault()).format(new Date(t));
+        return HHMM.format(new Date(t));
     }
 
     /** Label in grey followed by a value in white. */
@@ -1663,35 +1809,33 @@ final class HomeView extends View {
 
     private void drawCalendarWidget(Canvas c, RectF r) {
         Lunar.Info t = todayInfo;
-        Calendar cal = Calendar.getInstance();
         float pad = 16 * dp, h = r.height();
         text.setTextAlign(Paint.Align.LEFT);
         text.setLetterSpacing(0f);
         text.setTypeface(light);
         text.setTextSize(Math.min(52 * dp, h * 0.62f));
         text.setColor(Color.WHITE);
-        String day = String.valueOf(cal.get(Calendar.DAY_OF_MONTH));
+        String day = calDayStr;
         float dw = text.measureText(day);
         c.drawText(day, r.left + pad, r.centerY() + text.getTextSize() * 0.35f, text);
         float x = r.left + pad + dw + 16 * dp, maxW = r.right - pad - x;
         text.setTypeface(regular);
         text.setTextSize(16 * dp);
         text.setColor(Color.WHITE);
-        castLine(c, WEEKDAY_LONG[cal.get(Calendar.DAY_OF_WEEK) - 1] + " · Tháng " + (cal.get(Calendar.MONTH) + 1) + ", " + cal.get(Calendar.YEAR),
-                x, r.top + h * 0.34f, maxW);
+        castLine(c, calLine1, x, r.top + h * 0.34f, maxW);
         text.setTextSize(14 * dp);
         text.setColor(0xCCFFFFFF);
-        castLine(c, t.day + " tháng " + t.monthWord + " · Năm " + t.yearCanChi, x, r.top + h * 0.58f, maxW);
+        castLine(c, calLine2, x, r.top + h * 0.58f, maxW);
         text.setTextSize(13 * dp);
         if (t.holiday.length() > 0) {
             text.setColor(ORANGE);
-            castLine(c, t.holiday, x, r.top + h * 0.82f, maxW);
+            castLine(c, calLine3h, x, r.top + h * 0.82f, maxW);
         } else {
             text.setColor(0xB3FFFFFF);
-            String a = "Ngày " + t.dayCanChi + " · ";
-            c.drawText(a, x, r.top + h * 0.82f, text);
+            c.drawText(calPre, x, r.top + h * 0.82f, text);
+            float pw = text.measureText(calPre);
             text.setColor(t.good ? GREEN : PINK);
-            castLine(c, t.star + (t.good ? " (hoàng đạo)" : " (hắc đạo)"), x + text.measureText(a), r.top + h * 0.82f, Math.max(10 * dp, maxW - text.measureText(a)));
+            castLine(c, calSuf, x + pw, r.top + h * 0.82f, Math.max(10 * dp, maxW - pw));
         }
     }
 
@@ -1712,19 +1856,18 @@ final class HomeView extends View {
         text.setTypeface(light);
         text.setTextSize(Math.min(46 * dp, h * 0.56f));
         text.setColor(Color.WHITE);
-        String t = Math.round(w.temp) + "°";
         float tx = r.left + pad + icon + 12 * dp;
-        c.drawText(t, tx, r.centerY() + text.getTextSize() * 0.35f, text);
-        float x = tx + text.measureText(t) + 14 * dp, maxW = r.right - pad - x;
+        c.drawText(weaTemp, tx, r.centerY() + text.getTextSize() * 0.35f, text);
+        float x = tx + text.measureText(weaTemp) + 14 * dp, maxW = r.right - pad - x;
         text.setTypeface(regular);
         text.setTextSize(16 * dp);
-        castLine(c, w.text() + (place.length() > 0 ? " · " + place : ""), x, r.top + h * 0.34f, maxW);
+        castLine(c, weaLine1, x, r.top + h * 0.34f, maxW);
         text.setTextSize(14 * dp);
         text.setColor(0xCCFFFFFF);
-        castLine(c, "Cao " + Math.round(w.hi) + "° · Thấp " + Math.round(w.lo) + "°", x, r.top + h * 0.58f, maxW);
+        castLine(c, weaLine2, x, r.top + h * 0.58f, maxW);
         text.setTextSize(13 * dp);
         text.setColor(0xB3FFFFFF);
-        castLine(c, "Mưa " + w.rainMax + "% · Độ ẩm " + w.humidity + "%", x, r.top + h * 0.82f, maxW);
+        castLine(c, weaLine3, x, r.top + h * 0.82f, maxW);
     }
 
     private void openWeatherDetail() {
@@ -1794,14 +1937,13 @@ final class HomeView extends View {
         p.setStyle(Paint.Style.FILL);
         p.setColor(0x33FFFFFF);
         c.drawRect(x, tm + 190 * dp, xr, tm + 191 * dp, p);
-        String[] lab = { "Cảm giác như", "Độ ẩm", "Gió", "Khả năng mưa", "Chỉ số UV", "Mặt trời mọc / lặn" };
         String[] val = { Math.round(w.feels) + "°", w.humidity + "%", Math.round(w.wind) + " km/h", w.rainMax + "%", w.uvText(), w.sunrise + " / " + w.sunset };
         float ry = tm + 222 * dp, step = Math.min(30 * dp, (ch - 222 * dp - 14 * dp) / 5.2f);
-        for (int i = 0; i < lab.length; i++) {
+        for (int i = 0; i < WEATHER_LAB.length; i++) {
             text.setTextAlign(Paint.Align.LEFT);
             text.setTextSize(15 * dp);
             text.setColor(0xB3FFFFFF);
-            c.drawText(lab[i], x, ry + i * step, text);
+            c.drawText(WEATHER_LAB[i], x, ry + i * step, text);
             text.setTextAlign(Paint.Align.RIGHT);
             text.setColor(Color.WHITE);
             c.drawText(val[i], xr, ry + i * step, text);
@@ -1842,6 +1984,7 @@ final class HomeView extends View {
         int gMin = 99, gMax = -99;
         for (int i = 0; i < w.nDays; i++) { gMin = Math.min(gMin, w.dMin[i]); gMax = Math.max(gMax, w.dMax[i]); }
         if (gMax <= gMin) gMax = gMin + 1;
+        if (gradW != w) { gradW = w; for (int i = 0; i < 7; i++) dayGrads[i] = null; }
         float rowTop = y2 + 48 * dp, rowH = (h2 - 48 * dp - 12 * dp) / 7f;
         float barL = rx + 24 * dp + 250 * dp, barR = rx + rw - 24 * dp - 44 * dp;
         for (int i = 0; i < w.nDays; i++) {
@@ -1871,7 +2014,8 @@ final class HomeView extends View {
             float x1 = barL + (w.dMax[i] - gMin) / (float) (gMax - gMin) * (barR - barL);
             if (x1 - x0 < 6 * dp) x1 = x0 + 6 * dp;
             tmp.set(x0, cy - 3 * dp, x1, cy + 3 * dp);
-            p.setShader(new LinearGradient(x0, 0, x1, 0, 0xFF6EB6FF, 0xFFFFC266, Shader.TileMode.CLAMP));
+            if (dayGrads[i] == null) dayGrads[i] = new LinearGradient(x0, 0, x1, 0, 0xFF6EB6FF, 0xFFFFC266, Shader.TileMode.CLAMP);
+            p.setShader(dayGrads[i]);
             c.drawRoundRect(tmp, 3 * dp, 3 * dp, p);
             p.setShader(null);
         }
@@ -1888,8 +2032,16 @@ final class HomeView extends View {
         calY = calTY; calM = calTM; calD = calTD;
         calMonthKey = -1;
         calEnsure();
+        calSyncSel();
         calOpen = true;
         invalidate();
+    }
+
+    private void calSyncSel() {
+        Calendar sel = Calendar.getInstance();
+        sel.clear();
+        sel.set(calY, calM - 1, calD);
+        calSelDow = sel.get(Calendar.DAY_OF_WEEK);
     }
 
     private void calEnsure() {
@@ -1899,8 +2051,9 @@ final class HomeView extends View {
         Calendar c = Calendar.getInstance();
         c.clear();
         c.set(calY, calM - 1, 1);
-        int days = c.getActualMaximum(Calendar.DAY_OF_MONTH);
-        for (int d = 1; d < 32; d++) calInfo[d] = d <= days ? Lunar.info(calY, calM, d) : null;
+        calGridOff = (c.get(Calendar.DAY_OF_WEEK) + 5) % 7;   // Monday = 0
+        calGridDays = c.getActualMaximum(Calendar.DAY_OF_MONTH);
+        for (int d = 1; d < 32; d++) calInfo[d] = d <= calGridDays ? Lunar.info(calY, calM, d) : null;
     }
 
     private void calAdd(int n, int field) {
@@ -1912,6 +2065,7 @@ final class HomeView extends View {
         calM = c.get(Calendar.MONTH) + 1;
         calD = c.get(Calendar.DAY_OF_MONTH);
         calEnsure();
+        calSyncSel();
         act.sfx.move();
         invalidate();
     }
@@ -1933,7 +2087,7 @@ final class HomeView extends View {
             case KeyEvent.KEYCODE_DPAD_CENTER:
             case KeyEvent.KEYCODE_ENTER:
             case KeyEvent.KEYCODE_NUMPAD_ENTER:
-                if (e.getRepeatCount() == 0) { calY = calTY; calM = calTM; calD = calTD; calEnsure(); act.sfx.open(); }
+                if (e.getRepeatCount() == 0) { calY = calTY; calM = calTM; calD = calTD; calEnsure(); calSyncSel(); act.sfx.open(); }
                 break;
             case KeyEvent.KEYCODE_BACK: calOpen = false; break;
         }
@@ -1960,9 +2114,6 @@ final class HomeView extends View {
 
         Lunar.Info info = calInfo[calD];
         if (info == null) return;
-        Calendar sel = Calendar.getInstance();
-        sel.clear();
-        sel.set(calY, calM - 1, calD);
         float tm = 96 * dp, bm = 26 * dp, g = 16 * dp, ch = H - tm - bm;
         float leftW = (W - 2 * mx - g) * 0.37f, rx = mx + leftW + g, rw = W - mx - rx;
 
@@ -1973,13 +2124,13 @@ final class HomeView extends View {
         text.setTypeface(light);
         text.setTextSize(70 * dp);
         text.setColor(Color.WHITE);
-        String bigDay = String.valueOf(calD);
+        String bigDay = DAY_NUM[calD];
         c.drawText(bigDay, x, tm + 84 * dp, text);
         float dw = text.measureText(bigDay);
         text.setTypeface(regular);
         text.setFakeBoldText(true);
         text.setTextSize(24 * dp);
-        c.drawText(WEEKDAY_LONG[sel.get(Calendar.DAY_OF_WEEK) - 1], x + dw + 16 * dp, tm + 52 * dp, text);
+        c.drawText(WEEKDAY_LONG[calSelDow - 1], x + dw + 16 * dp, tm + 52 * dp, text);
         text.setFakeBoldText(false);
         text.setTextSize(16 * dp);
         text.setColor(0xB3FFFFFF);
@@ -2040,11 +2191,7 @@ final class HomeView extends View {
             text.setColor(i == 6 ? PINK : 0xB3FFFFFF);
             c.drawText(wd[i], gx + colW * (i + 0.5f), tm + 68 * dp, text);
         }
-        Calendar first = Calendar.getInstance();
-        first.clear();
-        first.set(calY, calM - 1, 1);
-        int off = (first.get(Calendar.DAY_OF_WEEK) + 5) % 7;   // Monday = 0
-        int days = first.getActualMaximum(Calendar.DAY_OF_MONTH);
+        int off = calGridOff, days = calGridDays;
         float gridTop = tm + 80 * dp, rowH = (ch - 80 * dp - 36 * dp) / 6f;
         for (int d = 1; d <= days; d++) {
             int pos = off + d - 1, row = pos / 7, col = pos % 7;
@@ -2068,12 +2215,12 @@ final class HomeView extends View {
             text.setTextSize(24 * dp);
             text.setTypeface(light);
             text.setColor(isSel ? 0xFF1C1C22 : (col == 6 ? PINK : Color.WHITE));
-            c.drawText(String.valueOf(d), cx, top + rowH * 0.56f, text);
+            c.drawText(DAY_NUM[d], cx, top + rowH * 0.56f, text);
             text.setTypeface(regular);
             text.setTextSize(11 * dp);
             boolean mark = di.day == 1 || di.day == 15;
             text.setColor(isSel ? (mark ? 0xFFC77700 : 0xFF55555C) : (mark ? ORANGE : 0x99FFFFFF));
-            c.drawText(di.day == 1 ? di.day + "/" + di.month : String.valueOf(di.day), cx, top + rowH * 0.83f, text);
+            c.drawText(di.dayLabel, cx, top + rowH * 0.83f, text);
             p.setStyle(Paint.Style.FILL);
             if (di.good) { p.setColor(GREEN); c.drawCircle(cx - colW * 0.30f, top + rowH * 0.22f, 3 * dp, p); }
             if (di.holiday.length() > 0) { p.setColor(ORANGE); c.drawCircle(cx + colW * 0.30f, top + rowH * 0.22f, 3 * dp, p); }
@@ -2296,20 +2443,6 @@ final class HomeView extends View {
         path.setFillType(Path.FillType.WINDING);
     }
 
-    private void drawGlow(Canvas c) {
-        if (dock.isEmpty()) return;
-        if (glowShader == null || shaderColor != glowCur) {
-            shaderColor = glowCur;
-            int rgb = glowCur & 0x00FFFFFF;
-            glowShader = new RadialGradient(0, 0, 300 * dp, new int[] { 0x70000000 | rgb, rgb }, null, Shader.TileMode.CLAMP);
-            glowPaint.setShader(glowShader);
-        }
-        c.save();
-        c.translate(gx.v, dockTop - 70 * dp);
-        c.drawCircle(0, 0, 300 * dp, glowPaint);
-        c.restore();
-    }
-
     private void drawName(Canvas c) {
         if (dock.isEmpty() || uiLabel == 0) return;
         float maxW = W - 2 * mx;
@@ -2318,8 +2451,13 @@ final class HomeView extends View {
         text.setTypeface(light);
         text.setTextSize(nameSp * dp);
         text.setColor(Color.WHITE);
-        CharSequence s = TextUtils.ellipsize(dock.get(dockIdx).label, text, maxW, TextUtils.TruncateAt.END);
-        c.drawText(s, 0, s.length(), mx, dockTop - 36 * dp, text);
+        AppEntry d = dock.get(dockIdx);
+        String key = d.label + "|" + (int) maxW + "|" + nameSp;
+        if (!key.equals(nameShownKey)) {
+            nameShownKey = key;
+            nameShown = TextUtils.ellipsize(d.label, text, maxW, TextUtils.TruncateAt.END);
+        }
+        c.drawText(nameShown, 0, nameShown.length(), mx, dockTop - 36 * dp, text);
     }
 
     private void drawDock(Canvas c) {
@@ -2350,26 +2488,46 @@ final class HomeView extends View {
     }
 
     private void drawArt(Canvas c, AppEntry e, RectF r, float scale) {
+        Bitmap b = tile(e);
+        if (b == null) return;
         c.save();
         if (scale != 1f) c.scale(scale, scale, r.centerX(), r.centerY());
+        c.drawBitmap(b, null, r, bmpPaint);
+        c.restore();
+    }
+
+    /** Renders one app tile (rounded background + banner/icon) into a cached bitmap, once per size. */
+    private Bitmap tile(AppEntry e) {
+        if (tileBmpW <= 0) {
+            tileBmpW = Math.max(1, (int) (tileW * TILE_SCALE + 0.5f));
+            tileBmpH = Math.max(1, (int) (tileH * TILE_SCALE + 0.5f));
+        }
+        String key = e.cn.getPackageName() + "@" + tileBmpW + "x" + tileBmpH;
+        Bitmap b = tiles.get(key);
+        if (b != null) return b;
+        b = Bitmap.createBitmap(tileBmpW, tileBmpH, Bitmap.Config.ARGB_8888);
+        Canvas cv = new Canvas(b);
+        cv.save();
         path.reset();
-        path.addRoundRect(r, 18 * dp, 18 * dp, Path.Direction.CW);
-        c.clipPath(path);
+        path.addRoundRect(new RectF(0, 0, tileBmpW, tileBmpH), 18 * dp * TILE_SCALE, 18 * dp * TILE_SCALE, Path.Direction.CW);
+        cv.clipPath(path);
         if (e.banner != null) {
-            e.banner.setBounds((int) r.left, (int) r.top, (int) r.right, (int) r.bottom);
-            e.banner.draw(c);
+            e.banner.setBounds(0, 0, tileBmpW, tileBmpH);
+            e.banner.draw(cv);
         } else {
             p.setStyle(Paint.Style.FILL);
             p.setColor(0xFF2A2A2E);
-            c.drawRect(r, p);
+            cv.drawRect(0, 0, tileBmpW, tileBmpH, p);
             if (e.icon != null) {
-                float s = r.height() * 0.6f;
-                int cx = (int) r.centerX(), cy = (int) r.centerY();
+                float s = tileBmpH * 0.6f;
+                int cx = tileBmpW / 2, cy = tileBmpH / 2;
                 e.icon.setBounds((int) (cx - s / 2), (int) (cy - s / 2), (int) (cx + s / 2), (int) (cy + s / 2));
-                e.icon.draw(c);
+                e.icon.draw(cv);
             }
         }
-        c.restore();
+        cv.restore();
+        tiles.put(key, b);
+        return b;
     }
 
     private void drawDropdown(Canvas c) {
@@ -2389,10 +2547,10 @@ final class HomeView extends View {
         text.setTypeface(regular);
         text.setTextSize(20 * dp);
         text.setTextAlign(Paint.Align.LEFT);
-        Paint.FontMetrics fm = text.getFontMetrics();
+        text.getFontMetrics(textFm);
         if (inputs.isEmpty()) {
             text.setColor(0xAAFFFFFF);
-            c.drawText("Không tìm thấy input", x + 22 * dp, y + 8 * dp + rowH2 / 2 - (fm.ascent + fm.descent) / 2f, text);
+            c.drawText("Không tìm thấy input", x + 22 * dp, y + 8 * dp + rowH2 / 2 - (textFm.ascent + textFm.descent) / 2f, text);
             return;
         }
         for (int i = 0; i < inputs.size(); i++) {
@@ -2403,7 +2561,7 @@ final class HomeView extends View {
                 c.drawRoundRect(tmp, 16 * dp, 16 * dp, p);
             }
             text.setColor(Color.WHITE);
-            c.drawText(inputs.get(i).label, x + 22 * dp, top + rowH2 / 2 - (fm.ascent + fm.descent) / 2f, text);
+            c.drawText(inputs.get(i).label, x + 22 * dp, top + rowH2 / 2 - (textFm.ascent + textFm.descent) / 2f, text);
         }
     }
 

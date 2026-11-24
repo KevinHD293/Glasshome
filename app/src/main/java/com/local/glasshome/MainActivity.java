@@ -50,6 +50,7 @@ public class MainActivity extends Activity {
     private static final String K_WALL = "wallpaper";
     private static final String K_UIGAP = "ui_gap", K_UISHADE = "ui_shade", K_UIDOCKLIFT = "ui_dock_lift", K_UIWHEIGHT = "ui_widget_height", K_UICAL = "ui_calendar", K_UIWEA = "ui_weather", K_UIHDATE = "ui_header_date", K_UIHLUNAR = "ui_header_lunar", K_UICLOCKSIZE = "ui_clock_size", K_UIWBG = "ui_widget_bg", K_UISHOWRAM = "ui_show_ram", K_UISHOWSTORAGE = "ui_show_storage";
     private static final String K_UIMOVESPEED = "ui_move_speed";
+    private static final String K_UIFROST = "ui_frost";
     private static final String K_UIGLASS = "ui_glass", K_UISIZE = "ui_size", K_UILABEL = "ui_label", K_UICOLOR = "ui_color", K_UIPOP = "ui_pop";
     private static final String K_WALLSEL = "wall_sel";   // "builtin" or the id of an uploaded photo (w_<time>.jpg)
     private static final String K_HIDDEN = "hidden";   // apps hidden from the home screen (comma separated packages)
@@ -426,6 +427,10 @@ public class MainActivity extends Activity {
 
     // ---- look-and-feel options (the options panel on the TV and the phone page both use these) ----
 
+    void saveFrost(boolean on) { prefs.edit().putBoolean(K_UIFROST, on).apply(); }
+
+    boolean frostOn() { return prefs.getBoolean(K_UIFROST, true); }
+
     void saveUi(boolean glass, int size, int label, boolean color, int pop, int gap, int shade, int dockLift, int widgetHeight, boolean calendar, boolean weather, boolean headerDate, boolean headerLunar, int clockSize, boolean widgetBg, boolean showRam, boolean showStorage, int moveSpeed) {
         prefs.edit().putBoolean(K_UIGLASS, glass).putInt(K_UISIZE, size).putInt(K_UILABEL, label)
                 .putBoolean(K_UICOLOR, color).putInt(K_UIPOP, pop)
@@ -448,6 +453,7 @@ public class MainActivity extends Activity {
                 prefs.getBoolean(K_UIHDATE, true), prefs.getBoolean(K_UIHLUNAR, true),
                 prefs.getInt(K_UICLOCKSIZE, 54), prefs.getBoolean(K_UIWBG, true),
                 prefs.getBoolean(K_UISHOWRAM, true), prefs.getBoolean(K_UISHOWSTORAGE, true), prefs.getInt(K_UIMOVESPEED, 1));
+        view.setFrost(frostOn());
     }
 
     // ---- "Dọn RAM": asks Android to kill the background processes of the other apps ----

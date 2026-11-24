@@ -145,7 +145,7 @@ final class Lunar {
     static final class Info {
         int day, month, year;          // lunar date
         boolean leap;
-        String dayCanChi = "", monthCanChi = "", yearCanChi = "", term = "", star = "", xung = "", monthWord = "";
+        String dayCanChi = "", monthCanChi = "", yearCanChi = "", term = "", star = "", xung = "", monthWord = "", dayLabel = "";
         boolean good;                  // Hoàng đạo day
         String hours1 = "", hours2 = "";   // good hours, three per line
         String holiday = "";           // name of a public holiday / festival, or ""
@@ -189,6 +189,7 @@ final class Lunar {
             o.yearCanChi = CAN[yCan] + " " + CHI[yChi];
             o.monthCanChi = CAN[mod(yCan * 2 + l[1] + 1, 10)] + " " + CHI[mod(l[1] + 1, 12)];
             o.monthWord = MONTH_WORDS[mod(l[1] - 1, 12)];
+            o.dayLabel = o.day == 1 ? o.day + "/" + o.month : String.valueOf(o.day);
             o.term = TERMS[mod(INT(sunLongitude(jd - 0.5 - TZ / 24.0) / Math.PI * 12), 24)];
             int pos = mod(dayChi - STAR_START[(l[1] - 1) % 6], 12);
             o.star = STARS[pos];
